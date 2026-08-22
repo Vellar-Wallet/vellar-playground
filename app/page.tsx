@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Eyebrow, Field, LpActionButton, MonoRow, MonoRows, TokenPill } from "./design/ui";
+import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
+import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,48 +64,6 @@ const COLD_START_CEILING_MS = 60_000;
 function truncateKey(key: string): string {
   if (key.length <= 12) return key;
   return `${key.slice(0, 5)}...${key.slice(-4)}`;
-}
-
-function truncateMiddle(s: string, head = 10, tail = 6): string {
-  if (s.length <= head + tail + 3) return s;
-  return `${s.slice(0, head)}...${s.slice(-tail)}`;
-}
-
-/** Format an atomic amount for the (default 7-decimal) Stellar SEP-41 token
- *  convention used by testnet USDC here — see @x402/stellar's
- *  DEFAULT_TOKEN_DECIMALS. Falls back to the raw atomic string if the value
- *  isn't a plain integer string, rather than guessing. */
-function formatAtomicAmount(amount?: string): string {
-  if (!amount) return "—";
-  if (!/^\d+$/.test(amount)) return amount;
-  const decimals = 7;
-  const padded = amount.padStart(decimals + 1, "0");
-  const whole = padded.slice(0, -decimals).replace(/^0+(?=\d)/, "");
-  const frac = padded.slice(-decimals).replace(/0+$/, "");
-  return frac ? `${whole}.${frac}` : whole;
-}
-
-/** Live-updating "(Ns)" elapsed-time counter, ticking every second.
- *
- *  `Date.now()` is read only from inside the `setInterval` callback — an
- *  event-like async callback, not the effect body itself or the render body
- *  — which satisfies both React 19 purity rules: no impure call during
- *  render, and no synchronous `setState` in the effect body (the effect only
- *  *subscribes*; the interval callback is what calls `setState`, exactly the
- *  "calling setState in a callback function when external state changes"
- *  pattern the lint rule asks for). The first tick's value lags by up to 1s
- *  (visible only as "(0s)" for a moment) — an acceptable tradeoff for a
- *  loading-state counter, not worth a synchronous effect setState to avoid. */
-function useElapsedSeconds(startedAt: number | null): number {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (startedAt === null) return;
-    const id = setInterval(() => {
-      setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [startedAt]);
-  return startedAt === null ? 0 : elapsed;
 }
 
 async function copyToClipboard(text: string) {
