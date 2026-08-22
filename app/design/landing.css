@@ -1,0 +1,1823 @@
+/* ============================================================
+   Vellar marketing landing — "paper & signals" system.
+   Scope: everything lives under .lp so the app shell, docs and the
+   (not-yet-migrated) About page keep their own systems untouched.
+
+   Moves, not values (see landing-page.md audit + design.md §marketing):
+   - White paper ground, forest ink, section-level inversion (no dark mode).
+   - Zero border-radius: 45° clip-cut corners + 2px offset outline frames
+     stand in for rounding and for elevation shadows (none exist here).
+   - Two workhorse faces (Cabinet Grotesk display / Plus Jakarta Sans body)
+     plus Playfair Display italic rationed to one emphasis phrase per
+     heading. Mono appears only inside genuinely monospaced content.
+   - Fluid clamp() type/spacing: mins land ~320px, maxes saturate ~1360px.
+   - Accent palette is Vellar's own brand family (mint/lime/coral + sun),
+     used at confident coverage on cards and CTAs — the ground stays white.
+
+   Deliberately fixed here (the audits' shared sins): visible
+   :focus-visible on every interactive element, accent colours only in
+   roles that pass contrast at their use size, prefers-reduced-motion
+   honoured (see motion.tsx — CSS transitions stay subtle either way).
+
+   Contrast notes (all measured against use size):
+   - ink on paper 12.2:1 · ink on sun 7.9 · ink on mint 7.6 · ink on lime 9.3
+   - ink on coral 4.4 → coral carries ink text ONLY at ≥19px bold, else it
+     is a fill/shape colour. Never mint/lime/sun as text on paper.
+   - white on ink 12.2 · mint on ink 7.6 · sun on ink 7.9
+   ============================================================ */
+
+.lp {
+  /* Surfaces */
+  --lp-paper: #ffffff;
+  --lp-paper-tint: #f5f9f6;
+  --lp-ink: #0c3b31; /* forest ink + inverted-section ground */
+  --lp-forest: #13594d; /* brand deep green — gradient stop, dark card */
+  --lp-line: rgba(12, 59, 49, 0.16);
+  --lp-line-strong: rgba(12, 59, 49, 0.32);
+
+  /* Ink */
+  --lp-ink-soft: rgba(12, 59, 49, 0.74);
+  --lp-ink-faint: rgba(12, 59, 49, 0.55);
+
+  /* On dark */
+  --lp-on-dark: #ffffff;
+  --lp-on-dark-soft: rgba(255, 255, 255, 0.78);
+  --lp-on-dark-faint: rgba(255, 255, 255, 0.55);
+  --lp-line-dark: rgba(255, 255, 255, 0.16);
+
+  /* Happy accents — Vellar brand family + one sun yellow. Fills, never
+     body-size text on paper. */
+  --lp-mint: #3ee6ad;
+  --lp-mint-soft: #dcf8ec;
+  --lp-lime: #c8f048;
+  --lp-lime-soft: #f0f9d2;
+  --lp-sun: #ffc94a;
+  --lp-sun-soft: #ffefc9;
+  --lp-coral: #ff6b5e;
+  --lp-coral-soft: #ffe4e0;
+
+  /* Type */
+  --lp-display: "Cabinet Grotesk", "Plus Jakarta Sans", ui-sans-serif, sans-serif;
+  --lp-serif: "Playfair Display", "Times New Roman", serif;
+  --lp-body: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --lp-mono: "Space Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  /* Fluid scale — min at ~320px, max at ~1360px */
+  --lp-fs-hero: clamp(2.75rem, 1.4rem + 6.4vw, 7rem); /* the ONE 7× moment */
+  --lp-fs-h2: clamp(2rem, 1.45rem + 2.75vw, 3.75rem);
+  --lp-fs-h3: clamp(1.4rem, 1.25rem + 0.8vw, 2rem);
+  --lp-fs-h4: 1.1875rem;
+  --lp-fs-lead: clamp(1.0625rem, 1rem + 0.4vw, 1.3125rem);
+  --lp-fs-body: 1rem;
+  --lp-fs-sm: 0.9375rem;
+  --lp-fs-eyebrow: 0.8125rem;
+
+  /* Spacing — 8px base; the biggest step is spent once (hero + CTA band) */
+  --lp-sp-2: 0.5rem;
+  --lp-sp-3: 0.75rem;
+  --lp-sp-4: 1rem;
+  --lp-sp-6: 1.5rem;
+  --lp-sp-8: 2rem;
+  --lp-sp-12: 3rem;
+  --lp-sp-lg: clamp(3rem, 6vw, 5rem);
+  --lp-sp-xl: clamp(4.5rem, 9vw, 7.5rem);
+  --lp-sp-xxl: clamp(6rem, 13vw, 11rem);
+  --lp-gutter: clamp(1.25rem, 4vw, 2.5rem);
+  --lp-container: 1240px;
+
+  /* Shape — no radius anywhere; 45° cuts instead */
+  --lp-cut-sm: 12px;
+  --lp-cut-md: 28px;
+  --lp-cut-lg: 44px;
+  --lp-clip-br-sm: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+  --lp-clip-tl-md: polygon(0 28px, 28px 0, 100% 0, 100% 100%, 0 100%);
+  --lp-clip-br-md: polygon(0 0, 100% 0, 100% calc(100% - 28px), calc(100% - 28px) 100%, 0 100%);
+  --lp-clip-tr-md: polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
+  --lp-clip-tl-lg: polygon(0 44px, 44px 0, 100% 0, 100% 100%, 0 100%);
+  /* Inner br-md shapes inset by the border width (diagonal offset is
+     w·√2: 1.41px for 1px, 2.83px for 2px). A cut card paints its BORDER
+     as the element background clipped to the outer shape, and its FILL
+     on ::before clipped to the matching inner shape — a pixel-exact
+     uniform border with no rotated-line approximation. */
+  --lp-clip-br-md-in1: polygon(
+    1px 1px,
+    calc(100% - 1px) 1px,
+    calc(100% - 1px) calc(100% - 28.41px),
+    calc(100% - 28.41px) calc(100% - 1px),
+    1px calc(100% - 1px)
+  );
+  --lp-clip-br-md-in2: polygon(
+    2px 2px,
+    calc(100% - 2px) 2px,
+    calc(100% - 2px) calc(100% - 28.83px),
+    calc(100% - 28.83px) calc(100% - 2px),
+    2px calc(100% - 2px)
+  );
+  /* 2px outline frames (offset behind cards — the depth system) */
+  --lp-frame-tl-md: polygon(
+    0 28px,
+    28px 0,
+    100% 0,
+    100% 100%,
+    0 100%,
+    0 28px,
+    2px 28.83px,
+    2px calc(100% - 2px),
+    calc(100% - 2px) calc(100% - 2px),
+    calc(100% - 2px) 2px,
+    28.83px 2px,
+    2px 28.83px
+  );
+  --lp-frame-tr-md: polygon(
+    0 0,
+    calc(100% - 28px) 0,
+    100% 28px,
+    100% 100%,
+    0 100%,
+    0 0,
+    2px 2px,
+    2px calc(100% - 2px),
+    calc(100% - 2px) calc(100% - 2px),
+    calc(100% - 2px) 28.83px,
+    calc(100% - 28.83px) 2px,
+    2px 2px
+  );
+  /* Inner path runs opposite to the outer path — the nonzero fill rule
+     needs the reversed winding to carve the outline's hollow middle. */
+  --lp-frame-br-md: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - 28px),
+    calc(100% - 28px) 100%,
+    0 100%,
+    0 0,
+    2px 2px,
+    2px calc(100% - 2px),
+    calc(100% - 28.83px) calc(100% - 2px),
+    calc(100% - 2px) calc(100% - 28.83px),
+    calc(100% - 2px) 2px,
+    2px 2px
+  );
+
+  /* Motion — two curves, everywhere */
+  --lp-ease-rise: cubic-bezier(0.22, 0.95, 0.3, 1);
+  --lp-ease-io: cubic-bezier(0.65, 0.05, 0.36, 1);
+  --lp-dur-fast: 0.2s;
+  --lp-dur-reveal: 0.6s;
+
+  background: var(--lp-paper);
+  color: var(--lp-ink);
+  font-family: var(--lp-body);
+  font-size: var(--lp-fs-body);
+  line-height: 1.55;
+  display: block;
+  overflow-x: clip;
+}
+
+/* ---- Base ---------------------------------------------------- */
+
+.lp ::selection {
+  background: var(--lp-mint);
+  color: var(--lp-ink);
+}
+
+.lp :focus-visible {
+  outline: 2px solid var(--lp-ink);
+  outline-offset: 3px;
+}
+.lp .lp-dark :focus-visible,
+.lp .lp-invert :focus-visible {
+  outline-color: var(--lp-sun);
+}
+
+.lp h1,
+.lp h2,
+.lp h3 {
+  font-family: var(--lp-display);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.015em;
+  margin: 0;
+  text-wrap: balance;
+}
+.lp h4 {
+  font-family: var(--lp-display);
+  font-weight: 700;
+  font-size: var(--lp-fs-h4);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.lp h1 {
+  font-size: var(--lp-fs-hero);
+  font-weight: 800;
+  letter-spacing: -0.03em; /* tightens as it grows — never loosens */
+}
+.lp h2 {
+  font-size: var(--lp-fs-h2);
+  letter-spacing: -0.02em;
+}
+.lp h3 {
+  font-size: var(--lp-fs-h3);
+}
+
+/* The entire emphasis system: one italic serif phrase per heading. */
+.lp h1 em,
+.lp h2 em,
+.lp .lp-em {
+  font-family: var(--lp-serif);
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.lp p {
+  margin: 0;
+}
+.lp a {
+  color: inherit;
+}
+
+.lp .lp-wrap {
+  max-width: var(--lp-container);
+  margin-inline: auto;
+  padding-inline: var(--lp-gutter);
+}
+
+.lp .lp-lead {
+  font-size: var(--lp-fs-lead);
+  line-height: 1.6;
+  color: var(--lp-ink-soft);
+  max-width: 56ch;
+}
+.lp .lp-lead a {
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lp-mint);
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--lp-dur-fast) ease;
+}
+.lp .lp-lead a:hover {
+  text-decoration-color: var(--lp-ink);
+}
+
+/* Eyebrow: ink text (accents fail contrast at this size) + happy bullet */
+.lp .lp-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6em;
+  font-size: var(--lp-fs-eyebrow);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lp-ink);
+}
+.lp .lp-invert .lp-eyebrow {
+  color: var(--lp-on-dark);
+}
+
+/* ---- Buttons — full state matrix ----------------------------- */
+
+.lp .lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6em;
+  font-family: var(--lp-body);
+  font-size: var(--lp-fs-sm);
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.9em 1.6em;
+  border: 0;
+  border-radius: 0;
+  clip-path: var(--lp-clip-br-sm);
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background var(--lp-dur-fast) ease,
+    color var(--lp-dur-fast) ease,
+    translate var(--lp-dur-fast) ease;
+}
+.lp .lp-btn:active {
+  translate: 0 1px;
+}
+.lp .lp-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.lp .lp-btn--lg {
+  font-size: 1.0625rem;
+  padding: 1em 1.9em;
+}
+.lp .lp-btn--sm {
+  font-size: 0.8125rem;
+  padding: 0.75em 1.3em;
+}
+
+/* Primary: sun. Hover flips fill and ink (the swap move). */
+.lp .lp-btn--sun {
+  background: var(--lp-sun);
+  color: var(--lp-ink);
+}
+.lp .lp-btn--sun:hover {
+  background: var(--lp-ink);
+  color: var(--lp-sun);
+}
+
+/* Secondary: forest fill. */
+.lp .lp-btn--forest {
+  background: var(--lp-ink);
+  color: var(--lp-on-dark);
+}
+.lp .lp-btn--forest:hover {
+  background: var(--lp-mint);
+  color: var(--lp-ink);
+}
+
+/* Quiet: outlined on paper. */
+.lp .lp-btn--outline {
+  background: transparent;
+  color: var(--lp-ink);
+  box-shadow: inset 0 0 0 2px var(--lp-ink);
+  clip-path: none;
+}
+.lp .lp-btn--outline:hover {
+  background: var(--lp-ink);
+  color: var(--lp-paper);
+}
+
+/* On dark sections: outlined white. */
+.lp .lp-btn--ghost {
+  background: transparent;
+  color: var(--lp-on-dark);
+  box-shadow: inset 0 0 0 2px var(--lp-on-dark);
+  clip-path: none;
+}
+.lp .lp-btn--ghost:hover {
+  background: var(--lp-on-dark);
+  color: var(--lp-ink);
+}
+
+/* ---- Offset outline frame (the depth system) ------------------
+   .lp-frame is a WRAPPER around a clipped card, never the card itself:
+   the card's own clip-path would cut the offset outline off (it clips
+   pseudo-elements too). The wrapper stays unclipped so the frame can
+   overhang freely. */
+
+.lp .lp-frame {
+  position: relative;
+}
+.lp .lp-frame::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -10px;
+  left: -10px;
+  width: 100%;
+  height: 100%;
+  background: var(--frame, var(--lp-mint));
+  clip-path: var(--lp-frame-tl-md);
+  pointer-events: none;
+}
+.lp .lp-frame--tr::before {
+  top: -10px;
+  left: 10px;
+  clip-path: var(--lp-frame-tr-md);
+}
+.lp .lp-frame--br::before {
+  top: 10px;
+  left: 10px;
+  clip-path: var(--lp-frame-br-md);
+}
+.lp .lp-frame--sun {
+  --frame: var(--lp-sun);
+}
+.lp .lp-frame--lime {
+  --frame: var(--lp-lime);
+}
+.lp .lp-frame--coral {
+  --frame: var(--lp-coral);
+}
+
+/* ---- Nav ------------------------------------------------------ */
+
+.lp .lp-nav-outer {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--lp-paper);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp .lp-nav {
+  max-width: var(--lp-container);
+  margin-inline: auto;
+  padding-inline: var(--lp-gutter);
+  height: 72px;
+  display: flex;
+  align-items: center;
+  gap: var(--lp-sp-6);
+}
+.lp .lp-brand {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  margin-right: auto;
+}
+.lp .lp-brand img {
+  display: block;
+  height: 38px;
+  width: auto;
+}
+.lp .lp-nav-links {
+  display: flex;
+  align-items: center;
+  gap: var(--lp-sp-6);
+}
+.lp .lp-nav-links a {
+  font-size: var(--lp-fs-sm);
+  font-weight: 600;
+  text-decoration: none;
+  padding-block: 4px;
+  border-bottom: 3px solid transparent;
+  transition: border-color var(--lp-dur-fast) ease;
+}
+.lp .lp-nav-links a:hover {
+  border-bottom-color: var(--lp-sun);
+}
+.lp .lp-nav-links a.active {
+  border-bottom-color: var(--lp-mint);
+}
+.lp .lp-nav-toggle {
+  display: none;
+  background: none;
+  border: 0;
+  color: var(--lp-ink);
+  cursor: pointer;
+  padding: 8px;
+  margin-left: 4px;
+}
+.lp .lp-nav-toggle svg {
+  display: block;
+}
+
+@media (max-width: 820px) {
+  .lp .lp-nav {
+    height: 64px;
+    gap: var(--lp-sp-4);
+  }
+  .lp .lp-nav-toggle {
+    display: block;
+  }
+  .lp .lp-nav-links {
+    position: fixed;
+    inset: 64px 0 0 0;
+    z-index: 39;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: var(--lp-sp-6);
+    padding: var(--lp-sp-8) var(--lp-gutter);
+    background: var(--lp-ink);
+    display: none;
+  }
+  .lp .lp-nav-links.open {
+    display: flex;
+  }
+  .lp .lp-nav-links a {
+    color: var(--lp-on-dark);
+    font-family: var(--lp-display);
+    font-size: 2rem;
+    font-weight: 700;
+    border-bottom-width: 4px;
+  }
+}
+
+/* ---- Hero ----------------------------------------------------- */
+
+.lp .lp-hero {
+  padding-top: var(--lp-sp-xl);
+  padding-bottom: var(--lp-sp-lg);
+  position: relative;
+}
+.lp .lp-hero h1 {
+  max-width: 13ch;
+}
+.lp .lp-hero .lp-lead {
+  margin-top: var(--lp-sp-6);
+}
+.lp .lp-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lp-sp-3);
+  margin-top: var(--lp-sp-8);
+}
+
+/* Word-reveal masks (spans injected by motion.tsx). The padding/negative-
+   margin pair keeps italic descenders inside the clip box. */
+.lp .lp-w {
+  display: inline-block;
+  overflow: clip;
+  vertical-align: bottom;
+  padding-bottom: 0.16em;
+  margin-bottom: -0.16em;
+}
+.lp .lp-w-i {
+  display: inline-block;
+  will-change: transform;
+}
+
+/* Product cards row */
+.lp .lp-hero-cards > .lp-frame,
+.lp .lp-hero-cards .lp-pcard,
+.lp .lp-hero-cards .lp-mrow,
+.lp .lp-hero-cards .lp-rrow .rn {
+  min-width: 0;
+}
+.lp .lp-hero-cards {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--lp-sp-8) var(--lp-sp-6);
+  align-items: start;
+  margin-top: var(--lp-sp-xl);
+}
+.lp .lp-pcard {
+  position: relative;
+  background: var(--lp-line-strong); /* the 1px border */
+  clip-path: var(--lp-clip-br-md);
+  padding: var(--lp-sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-sp-4);
+}
+.lp .lp-pcard::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--lp-paper);
+  clip-path: var(--lp-clip-br-md-in1);
+}
+.lp .lp-pcard-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lp-ink-faint);
+}
+.lp .lp-field {
+  position: relative;
+  border: 0;
+  background: var(--field-border, var(--lp-line)); /* the 1px border */
+  clip-path: var(--lp-clip-br-sm);
+  padding: var(--lp-sp-3) var(--lp-sp-4);
+}
+.lp .lp-field::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--field-fill, var(--lp-paper-tint));
+  clip-path: polygon(
+    1px 1px,
+    calc(100% - 1px) 1px,
+    calc(100% - 1px) calc(100% - 12.41px),
+    calc(100% - 12.41px) calc(100% - 1px),
+    1px calc(100% - 1px)
+  );
+}
+.lp .lp-field .lbl {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--lp-ink-faint);
+}
+.lp .lp-field .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--lp-sp-2);
+  margin-top: 2px;
+}
+.lp .lp-field .amt {
+  font-family: var(--lp-display);
+  font-weight: 700;
+  font-size: 1.375rem;
+  letter-spacing: -0.01em;
+}
+.lp .lp-field .sub {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--lp-ink-faint);
+  margin-top: 4px;
+}
+.lp .lp-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.lp .lp-token i {
+  width: 14px;
+  height: 14px;
+  background: var(--lp-mint);
+  border-radius: 50%;
+}
+.lp .lp-token--usdc i {
+  background: var(--lp-sun);
+}
+.lp .lp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lp-sp-2);
+}
+.lp .lp-chips b {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border: 1px solid var(--lp-line-strong);
+}
+.lp .lp-chips b.on {
+  background: var(--lp-mint-soft);
+  border-color: transparent;
+}
+
+/* Mono request/response rows (real mono content only) */
+.lp .lp-mrows {
+  display: flex;
+  flex-direction: column;
+}
+.lp .lp-mrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--lp-sp-4);
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--lp-line);
+  font-family: var(--lp-mono);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+.lp .lp-mrow:last-child {
+  border-bottom: 0;
+}
+.lp .lp-mrow span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--lp-ink-soft);
+}
+.lp .lp-mrow b {
+  font-weight: 700;
+}
+.lp .lp-mrow b.ok {
+  color: #0d7a55; /* mint's AA-passing text shade on white (4.6:1) */
+}
+.lp .lp-mrow b.bad {
+  color: #c2372b; /* coral's AA-passing text shade on white */
+}
+
+/* Bazaar rows */
+.lp .lp-rlist {
+  display: flex;
+  flex-direction: column;
+}
+.lp .lp-rrow {
+  display: flex;
+  align-items: center;
+  gap: var(--lp-sp-3);
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp .lp-rrow:last-child {
+  border-bottom: 0;
+}
+.lp .lp-rrow .ri {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  background: var(--lp-lime-soft);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
+.lp .lp-rrow:nth-child(2) .ri {
+  background: var(--lp-sun-soft);
+}
+.lp .lp-rrow:nth-child(3) .ri {
+  background: var(--lp-mint-soft);
+}
+.lp .lp-rrow .rn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.lp .lp-rrow .rn b {
+  font-size: 0.875rem;
+}
+.lp .lp-rrow .rn span {
+  font-size: 0.75rem;
+  color: var(--lp-ink-faint);
+}
+.lp .lp-rrow .open {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  background: var(--lp-sun);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+}
+.lp .lp-verified {
+  display: inline-flex;
+  align-self: flex-start;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  background: var(--lp-mint-soft);
+}
+
+/* ---- Section scaffolding -------------------------------------- */
+
+.lp .lp-sec {
+  padding-block: var(--lp-sp-xl);
+}
+.lp .lp-sec--tight {
+  padding-top: 0;
+}
+.lp .lp-sechead {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--lp-sp-6) var(--lp-sp-12);
+  align-items: end;
+  margin-bottom: var(--lp-sp-12);
+}
+.lp .lp-sechead h2 {
+  margin-top: var(--lp-sp-4);
+  max-width: 16ch;
+}
+
+/* ---- Pillar cards (x402 stack) -------------------------------- */
+
+.lp .lp-pillars {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--lp-sp-6);
+}
+.lp .lp-pillar {
+  padding: var(--lp-sp-8) var(--lp-sp-6);
+  clip-path: var(--lp-clip-tl-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-sp-4);
+  min-height: 100%;
+}
+.lp .lp-pillar:nth-child(1) {
+  background: var(--lp-mint-soft);
+}
+.lp .lp-pillar:nth-child(2) {
+  background: var(--lp-sun-soft);
+}
+.lp .lp-pillar:nth-child(3) {
+  background: var(--lp-lime-soft);
+}
+.lp .lp-pillar .num {
+  font-family: var(--lp-display);
+  font-weight: 800;
+  font-size: clamp(2.5rem, 2rem + 2vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.lp .lp-pillar p {
+  color: var(--lp-ink-soft);
+  font-size: var(--lp-fs-sm);
+  line-height: 1.6;
+}
+
+/* ---- Everyday actions — spread accordion ----------------------
+   One row of slats; exactly one expanded at a time. The width change is
+   flex-grow ONLY (every slat has flex-basis 0, so siblings absorb the
+   difference — the row's total width never changes, no reflow, no JS
+   width math). The crossfade timings are asymmetric on purpose so
+   content is never visible in a container too narrow for it; the brief
+   empty middle moment during the width change is intentional. */
+
+.lp .lp-spread {
+  display: flex;
+  gap: 10px;
+  height: 430px;
+}
+.lp .lp-slat {
+  flex: 1 1 0%;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  clip-path: var(--lp-clip-br-md);
+  background: var(--slat-soft, var(--lp-paper-tint));
+  color: var(--lp-ink);
+  font-family: var(--lp-body);
+  text-align: left;
+  transition: flex-grow 0.55s cubic-bezier(0.22, 0.9, 0.24, 1);
+}
+.lp .lp-slat[aria-expanded="true"] {
+  flex-grow: 5;
+  z-index: 2;
+  cursor: default;
+}
+/* The slat's clip-path would cut an outer outline ring, so the focus
+   ring draws inset here — still 3px of ink, still unmistakable. */
+.lp .lp-slat:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 3px var(--lp-ink);
+}
+
+/* Collapsed face: fades OUT fast on expand, back IN late on collapse */
+.lp .lp-slat-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 0 26px;
+  opacity: 1;
+  transition: opacity 0.2s ease 0.4s;
+}
+.lp .lp-slat[aria-expanded="true"] .lp-slat-face {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.lp .lp-slat-face .num {
+  font-family: var(--lp-mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.lp .lp-slat-face .name {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: var(--lp-display);
+  font-weight: 700;
+  font-size: 1.3125rem;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.lp .lp-slat-face .dot {
+  width: 10px;
+  height: 10px;
+  background: var(--slat-accent, var(--lp-mint));
+  border-radius: 50%;
+}
+
+/* Expanded body: fades IN late on expand (once the width is ~settled),
+   OUT immediately on collapse */
+.lp .lp-slat-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-sp-4);
+  padding: var(--lp-sp-6);
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition:
+    opacity 0.08s ease,
+    transform 0.08s ease;
+}
+.lp .lp-slat[aria-expanded="true"] .lp-slat-body {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition:
+    opacity 0.25s ease 0.38s,
+    transform 0.25s ease 0.38s;
+}
+.lp .lp-slat-body .title {
+  font-family: var(--lp-display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+}
+.lp .lp-slat-body .desc {
+  display: block;
+  color: var(--lp-ink-soft);
+  font-size: var(--lp-fs-sm);
+  line-height: 1.6;
+  max-width: 46ch;
+}
+.lp .lp-slat-mock {
+  margin-top: auto;
+  width: min(100%, 400px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-sp-2);
+}
+/* Mock internals are spans (button content rules), so give the
+   block-level ones their display back. */
+.lp .lp-slat-mock .lp-field {
+  display: block;
+  --field-fill: var(--lp-paper);
+}
+.lp .lp-slat-mock .lbl {
+  display: block;
+}
+.lp .lp-slat-mock .lp-rlist {
+  background: var(--lp-paper);
+  border: 1px solid var(--lp-line);
+  padding: 4px 12px;
+}
+.lp .lp-slat-mock .lp-badge {
+  align-self: flex-start;
+}
+
+/* Autoplay progress: telegraphs the 4600ms dwell. Restarted by
+   re-keying the element on every index change; hidden while paused or
+   under reduced motion (it is only rendered while autoplay runs). */
+.lp .lp-slat-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: var(--slat-accent, var(--lp-mint));
+  transform-origin: left center;
+  transform: scaleX(0);
+  animation: lp-slat-progress 4600ms linear forwards;
+}
+@keyframes lp-slat-progress {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Below the rail breakpoint: a compact two-column grid of small cards
+   (no autoplay, no interaction) — the mocks hide, so each card is just
+   its title and one line */
+@media (max-width: 900px) {
+  .lp .lp-spread {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: auto;
+    gap: var(--lp-sp-3);
+  }
+  .lp .lp-slat,
+  .lp .lp-slat[aria-expanded="true"] {
+    flex: none;
+    cursor: default;
+  }
+  .lp .lp-slat:last-child {
+    grid-column: 1 / -1;
+  }
+  .lp .lp-slat-face {
+    display: none;
+  }
+  .lp .lp-slat-body,
+  .lp .lp-slat[aria-expanded="true"] .lp-slat-body {
+    position: static;
+    opacity: 1;
+    transform: none;
+    transition: none;
+    pointer-events: auto;
+    padding: var(--lp-sp-4);
+    gap: var(--lp-sp-2);
+  }
+  .lp .lp-slat-body .title {
+    font-size: 1.125rem;
+  }
+  .lp .lp-slat-body .desc {
+    font-size: 0.8125rem;
+  }
+  .lp .lp-slat-mock {
+    display: none;
+  }
+  .lp .lp-slat-progress {
+    display: none;
+  }
+}
+.lp .lp-badge {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  background: var(--lp-paper);
+  border: 1px solid var(--lp-line-strong);
+}
+
+/* ---- 402 → 200 pinned trace (the one cinematic moment) --------- */
+
+.lp .lp-trace {
+  background: var(--lp-ink);
+  color: var(--lp-on-dark);
+  clip-path: var(--lp-clip-tl-lg);
+}
+.lp .lp-trace-pin {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-block: var(--lp-sp-lg);
+}
+.lp .lp-trace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--lp-sp-12);
+  align-items: center;
+}
+.lp .lp-trace h2 {
+  max-width: 12ch;
+}
+.lp .lp-trace h2 em {
+  color: var(--lp-mint);
+}
+.lp .lp-trace .lp-lead {
+  color: var(--lp-on-dark-soft);
+  margin-top: var(--lp-sp-6);
+}
+.lp .lp-trace-panel {
+  position: relative;
+  background: var(--lp-line-dark); /* the 1px border */
+  clip-path: var(--lp-clip-br-md);
+  padding: var(--lp-sp-6);
+}
+.lp .lp-trace-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  /* opaque equivalent of the old 4%-white wash — a translucent fill
+     would let the border colour bleed through */
+  background: color-mix(in srgb, var(--lp-on-dark) 4%, var(--lp-ink));
+  clip-path: var(--lp-clip-br-md-in1);
+}
+.lp .lp-trace-panel .head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lp-on-dark-faint);
+  margin-bottom: var(--lp-sp-4);
+}
+.lp .lp-trace-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--lp-sp-4);
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--lp-line-dark);
+  font-family: var(--lp-mono);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+.lp .lp-trace-row:last-child {
+  border-bottom: 0;
+}
+.lp .lp-trace-row span {
+  color: var(--lp-on-dark-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lp .lp-trace-row b {
+  font-weight: 700;
+  color: var(--lp-on-dark);
+}
+.lp .lp-trace-row b.ok {
+  color: var(--lp-mint);
+}
+.lp .lp-trace-row b.bad {
+  color: var(--lp-coral);
+}
+.lp .lp-trace-bar {
+  height: 4px;
+  background: var(--lp-line-dark);
+  margin-top: var(--lp-sp-6);
+  overflow: hidden;
+}
+.lp .lp-trace-bar i {
+  /* Full by default (the no-JS / reduced-motion state); motion.tsx scales it
+     from 0 and scrubs it with the pinned timeline. */
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--lp-mint);
+}
+
+/* ---- Platform cards ------------------------------------------- */
+
+.lp .lp-plat {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--lp-sp-8) var(--lp-sp-6);
+}
+.lp .lp-platcard {
+  padding: var(--lp-sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-sp-4);
+  clip-path: var(--lp-clip-tr-md);
+}
+.lp .lp-platcard--paper {
+  background: var(--lp-mint-soft);
+}
+.lp .lp-platcard--dark {
+  background: var(--lp-ink);
+  color: var(--lp-on-dark);
+}
+.lp .lp-platcard--dark p {
+  color: var(--lp-on-dark-soft);
+}
+.lp .lp-platcard p {
+  color: var(--lp-ink-soft);
+  font-size: var(--lp-fs-sm);
+  line-height: 1.6;
+  max-width: 44ch;
+}
+.lp .lp-platcard .mini {
+  margin-top: auto;
+  position: relative;
+  border: 0;
+  background: var(--lp-line); /* the 1px border */
+  clip-path: var(--lp-clip-br-sm);
+  padding: var(--lp-sp-4);
+  color: var(--lp-ink);
+}
+.lp .lp-platcard .mini::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--lp-paper);
+  clip-path: polygon(
+    1px 1px,
+    calc(100% - 1px) 1px,
+    calc(100% - 1px) calc(100% - 12.41px),
+    calc(100% - 12.41px) calc(100% - 1px),
+    1px calc(100% - 1px)
+  );
+}
+.lp .lp-platcard--dark .mini {
+  background: var(--lp-line-dark);
+  color: var(--lp-on-dark);
+}
+.lp .lp-platcard--dark .mini::before {
+  background: color-mix(in srgb, var(--lp-on-dark) 5%, var(--lp-ink));
+}
+.lp .lp-platcard--dark .mini .lp-mrow {
+  border-color: var(--lp-line-dark);
+}
+.lp .lp-platcard--dark .mini .lp-mrow span {
+  color: var(--lp-on-dark-soft);
+}
+.lp .lp-platcard--dark .mini .lp-mrow b.ok {
+  color: var(--lp-mint);
+}
+.lp .lp-platcard .lp-cta-row {
+  margin-top: var(--lp-sp-2);
+}
+
+/* ---- Step columns (extension) --------------------------------- */
+
+.lp .lp-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--lp-sp-6);
+}
+/* Each step is a card whose FULL 2px border carries its accent colour,
+   drawn with the outer/inner clip pair so the diagonal is exact. */
+.lp .lp-step {
+  --step-c: var(--lp-mint);
+  position: relative;
+  background: var(--step-c); /* the 2px border */
+  clip-path: var(--lp-clip-br-md);
+  padding: var(--lp-sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-sp-3);
+}
+.lp .lp-step::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--lp-paper);
+  clip-path: var(--lp-clip-br-md-in2);
+}
+.lp .lp-step:nth-child(2) {
+  --step-c: var(--lp-sun);
+}
+.lp .lp-step:nth-child(3) {
+  --step-c: var(--lp-lime);
+}
+.lp .lp-step .num {
+  font-family: var(--lp-display);
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+}
+.lp .lp-step p {
+  color: var(--lp-ink-soft);
+  font-size: var(--lp-fs-sm);
+  line-height: 1.6;
+}
+
+/* ---- Wallet services — bento grid -----------------------------
+   Asymmetric named-area layout: a 2×2 passkey anchor, two wide tinted
+   tiles, single white tiles, and a dark SDK tile with a live code row.
+   One system (cut corners, soft tints, hairline borders), real shape. */
+
+.lp .lp-bento {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-areas:
+    "passkey passkey policies policies"
+    "passkey passkey verify trust"
+    "swaps fees cleanup cleanup"
+    "custody sdk sdk sdk";
+  gap: var(--lp-sp-4);
+}
+.lp .lp-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-sp-3);
+  padding: var(--lp-sp-6);
+  background: var(--lp-line-strong); /* the 1px border */
+  clip-path: var(--lp-clip-br-md);
+}
+.lp .lp-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--tile-fill, var(--lp-paper));
+  clip-path: var(--lp-clip-br-md-in1);
+}
+.lp .lp-tile p {
+  color: var(--lp-ink-soft);
+  font-size: var(--lp-fs-sm);
+  line-height: 1.6;
+}
+.lp .lp-tile .ico {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+  background: var(--tile-chip, var(--lp-mint-soft));
+  color: var(--lp-ink);
+}
+/* placement + tones */
+.lp .lp-tile--passkey {
+  grid-area: passkey;
+  --tile-fill: var(--lp-mint-soft);
+  --tile-chip: var(--lp-paper);
+}
+.lp .lp-tile--passkey h4 {
+  font-size: 1.5rem;
+  letter-spacing: -0.015em;
+}
+.lp .lp-tile--passkey p {
+  max-width: 40ch;
+}
+.lp .lp-tile--passkey .lp-field {
+  margin-top: auto;
+  max-width: 400px;
+  --field-fill: var(--lp-paper);
+  --field-border: transparent;
+}
+.lp .lp-tile--policies {
+  grid-area: policies;
+  --tile-fill: var(--lp-sun-soft);
+  --tile-chip: var(--lp-paper);
+}
+.lp .lp-tile--verify {
+  grid-area: verify;
+  --tile-chip: var(--lp-lime-soft);
+}
+.lp .lp-tile--trust {
+  grid-area: trust;
+  --tile-chip: var(--lp-coral-soft);
+}
+.lp .lp-tile--swaps {
+  grid-area: swaps;
+  --tile-fill: var(--lp-lime-soft);
+  --tile-chip: var(--lp-paper);
+}
+.lp .lp-tile--fees {
+  grid-area: fees;
+  --tile-chip: var(--lp-sun-soft);
+}
+.lp .lp-tile--cleanup {
+  grid-area: cleanup;
+  --tile-chip: var(--lp-mint-soft);
+}
+.lp .lp-tile--cleanup p {
+  max-width: 62ch;
+}
+.lp .lp-tile--custody {
+  grid-area: custody;
+  --tile-chip: var(--lp-lime-soft);
+}
+/* chips on tinted tiles read as paper tokens */
+.lp .lp-tile--passkey .lp-chips b,
+.lp .lp-tile--policies .lp-chips b {
+  background: var(--lp-paper);
+  border-color: transparent;
+}
+/* the dark SDK tile — borderless: solid ink, no inner fill layer */
+.lp .lp-tile--sdk {
+  grid-area: sdk;
+  background: var(--lp-ink);
+  color: var(--lp-on-dark);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  grid-template-rows: auto auto 1fr;
+  gap: var(--lp-sp-3) var(--lp-sp-8);
+  align-items: start;
+  --tile-chip: rgba(255, 255, 255, 0.12);
+}
+.lp .lp-tile--sdk::before {
+  display: none;
+}
+.lp .lp-tile--sdk .ico {
+  color: var(--lp-on-dark);
+}
+.lp .lp-tile--sdk p {
+  color: var(--lp-on-dark-soft);
+}
+.lp .lp-tile--sdk .tcode {
+  grid-column: 2;
+  grid-row: 1 / 4;
+  align-self: center;
+  width: 100%;
+  position: relative;
+  border: 0;
+  background: var(--lp-line-dark); /* the 1px border */
+  clip-path: var(--lp-clip-br-sm);
+  padding: var(--lp-sp-4);
+}
+.lp .lp-tile--sdk .tcode::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--lp-on-dark) 5%, var(--lp-ink));
+  clip-path: polygon(
+    1px 1px,
+    calc(100% - 1px) 1px,
+    calc(100% - 1px) calc(100% - 12.41px),
+    calc(100% - 12.41px) calc(100% - 1px),
+    1px calc(100% - 1px)
+  );
+}
+.lp .lp-tile--sdk .tcode .lp-mrow {
+  border-color: var(--lp-line-dark);
+}
+.lp .lp-tile--sdk .tcode .lp-mrow span {
+  color: var(--lp-on-dark-soft);
+}
+.lp .lp-tile--sdk .tcode .lp-mrow b.ok {
+  color: var(--lp-mint);
+}
+
+/* ---- FAQ ------------------------------------------------------ */
+
+.lp .lp-faq-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: var(--lp-sp-12);
+  align-items: start;
+}
+.lp .lp-fitem {
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp .lp-fitem summary {
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--lp-sp-4);
+  padding: var(--lp-sp-4) 2px;
+  font-family: var(--lp-display);
+  font-weight: 700;
+  font-size: 1.125rem;
+  cursor: pointer;
+  transition: color var(--lp-dur-fast) ease;
+}
+.lp .lp-fitem summary::-webkit-details-marker {
+  display: none;
+}
+.lp .lp-fitem summary:hover {
+  color: var(--lp-forest);
+}
+.lp .lp-fitem summary .pm {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-family: var(--lp-body);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1;
+  /* optically center inside the cut shape (its visual centroid sits a
+     touch up-left of the box centre because of the corner cut) */
+  padding: 0 2px 2px 0;
+  background: var(--lp-sun);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+  transition: rotate var(--lp-dur-fast) var(--lp-ease-io);
+}
+.lp .lp-fitem[open] summary .pm {
+  rotate: 45deg;
+}
+.lp .lp-fitem .body {
+  padding: 0 2px var(--lp-sp-6);
+  color: var(--lp-ink-soft);
+  font-size: var(--lp-fs-sm);
+  line-height: 1.65;
+  max-width: 60ch;
+}
+.lp .lp-faq-aside p a {
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lp-mint);
+  text-underline-offset: 3px;
+}
+.lp .lp-faq-aside p a:hover {
+  text-decoration-color: var(--lp-ink);
+}
+
+/* ---- CTA band ------------------------------------------------- */
+
+.lp .lp-cta {
+  background: var(--lp-ink);
+  color: var(--lp-on-dark);
+  clip-path: var(--lp-clip-tl-lg);
+  padding-block: var(--lp-sp-xxl);
+  text-align: center;
+}
+.lp .lp-cta h2 {
+  margin-inline: auto;
+  max-width: 16ch;
+}
+.lp .lp-cta h2 em {
+  color: var(--lp-sun);
+}
+.lp .lp-cta p {
+  color: var(--lp-on-dark-soft);
+  max-width: 52ch;
+  margin: var(--lp-sp-6) auto 0;
+  font-size: var(--lp-fs-lead);
+  line-height: 1.6;
+}
+.lp .lp-cta .lp-cta-row {
+  justify-content: center;
+}
+
+/* ---- Footer --------------------------------------------------- */
+
+.lp .lp-footer {
+  border-top: 1px solid var(--lp-line);
+  padding-top: var(--lp-sp-lg);
+  overflow: clip;
+}
+.lp .lp-foot-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr);
+  gap: var(--lp-sp-8) var(--lp-sp-12);
+}
+.lp .lp-foot-brand p {
+  color: var(--lp-ink-soft);
+  font-size: var(--lp-fs-sm);
+  line-height: 1.6;
+  max-width: 38ch;
+  margin-top: var(--lp-sp-4);
+}
+.lp .lp-foot-cols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--lp-sp-8) var(--lp-sp-6);
+}
+.lp .lp-foot-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-sp-3);
+}
+.lp .lp-foot-col h4 {
+  font-family: var(--lp-body);
+  font-size: var(--lp-fs-eyebrow);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: var(--lp-sp-2);
+}
+.lp .lp-foot-col a {
+  font-size: var(--lp-fs-sm);
+  color: var(--lp-ink-soft);
+  text-decoration: none;
+  width: fit-content;
+  border-bottom: 2px solid transparent;
+  transition:
+    color var(--lp-dur-fast) ease,
+    border-color var(--lp-dur-fast) ease;
+}
+.lp .lp-foot-col a:hover {
+  color: var(--lp-ink);
+  border-bottom-color: var(--lp-sun);
+}
+/* Watermark: the wordmark, faint, sitting fully above the bottom rule */
+.lp .lp-foot-logo {
+  display: block;
+  width: min(680px, 72%);
+  height: auto;
+  margin: var(--lp-sp-lg) auto 0;
+  opacity: 0.09;
+  user-select: none;
+  pointer-events: none;
+}
+.lp .lp-foot-bot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lp-sp-4);
+  flex-wrap: wrap;
+  padding-block: var(--lp-sp-4);
+  border-top: 1px solid var(--lp-line);
+  font-size: 0.8125rem;
+  color: var(--lp-ink-faint);
+}
+
+/* ---- About page ----------------------------------------------- */
+
+/* h1 semantics with section-title scale */
+.lp h1.lp-about-title {
+  font-size: var(--lp-fs-h2);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-top: var(--lp-sp-4);
+  max-width: 16ch;
+}
+
+/* The four stack layers — compact indexed rows */
+.lp .lp-about-layers {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--lp-sp-6);
+  margin-top: var(--lp-sp-12);
+}
+.lp .lp-about-layer {
+  --layer-c: var(--lp-mint);
+  border-top: 2px solid var(--layer-c);
+  padding-top: var(--lp-sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-sp-2);
+}
+.lp .lp-about-layer:nth-child(2) {
+  --layer-c: var(--lp-sun);
+}
+.lp .lp-about-layer:nth-child(3) {
+  --layer-c: var(--lp-lime);
+}
+.lp .lp-about-layer:nth-child(4) {
+  --layer-c: var(--lp-coral);
+}
+.lp .lp-about-layer .num {
+  font-family: var(--lp-mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.lp .lp-about-layer h4 {
+  font-size: 1.0625rem;
+}
+.lp .lp-about-layer p {
+  color: var(--lp-ink-soft);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+/* The wallet-under-it-all note + claim chips */
+.lp .lp-about-note {
+  max-width: 58ch;
+  margin-top: var(--lp-sp-12);
+}
+.lp .lp-about-note .lp-chips {
+  margin-top: var(--lp-sp-4);
+}
+
+@media (max-width: 1000px) {
+  .lp .lp-about-layers {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .lp .lp-about-layers {
+    gap: var(--lp-sp-4);
+  }
+  .lp .lp-about-layer p {
+    font-size: 0.8125rem;
+  }
+}
+
+.lp .lp-persona {
+  position: relative;
+  clip-path: var(--lp-clip-br-md);
+  background: var(--lp-mint-soft);
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+}
+.lp .lp-persona img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lp .lp-persona-fallback {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  font-family: var(--lp-display);
+  font-weight: 800;
+  font-size: clamp(3rem, 8vw, 5rem);
+  letter-spacing: -0.02em;
+  color: var(--lp-ink);
+}
+
+/* ---- Responsive ----------------------------------------------- */
+
+@media (max-width: 1000px) {
+  .lp .lp-hero-cards {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .lp .lp-pillars,
+  .lp .lp-steps {
+    grid-template-columns: 1fr 1fr;
+  }
+  .lp .lp-bento {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "passkey passkey"
+      "policies policies"
+      "verify trust"
+      "swaps fees"
+      "cleanup cleanup"
+      "custody custody"
+      "sdk sdk";
+  }
+  .lp .lp-tile--sdk {
+    display: flex;
+  }
+  .lp .lp-trace-grid {
+    grid-template-columns: 1fr;
+    gap: var(--lp-sp-8);
+  }
+  .lp .lp-trace-pin {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .lp .lp-sechead,
+  .lp .lp-faq-grid,
+  .lp .lp-plat,
+  .lp .lp-foot-top {
+    grid-template-columns: 1fr;
+  }
+  /* Two-up compact grids — the mobile pattern for stacked card sections */
+  .lp .lp-hero-cards {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--lp-sp-4) var(--lp-sp-3);
+  }
+  .lp .lp-hero-cards > .lp-frame:last-child {
+    grid-column: 1 / -1;
+  }
+  /* phone-only content trim — desktop and tablet keep the full cards */
+  .lp .lp-hero-cards .lp-field .sub,
+  .lp .lp-hero-cards .lp-field .lp-token,
+  .lp .lp-hero-cards .lp-chips {
+    display: none;
+  }
+  /* narrow columns: mono rows wrap instead of ellipsizing to nonsense */
+  .lp .lp-hero-cards .lp-mrow {
+    gap: 2px var(--lp-sp-2);
+    white-space: normal;
+    flex-wrap: wrap;
+  }
+  .lp .lp-hero-cards .lp-mrow span {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .lp .lp-hero-cards .lp-field .row {
+    flex-wrap: wrap;
+  }
+  .lp .lp-hero-cards .lp-pcard {
+    padding: var(--lp-sp-4);
+    gap: var(--lp-sp-3);
+    height: 100%;
+  }
+  .lp .lp-hero-cards .lp-pcard-top {
+    font-size: 0.6875rem;
+  }
+  .lp .lp-hero-cards .lp-field {
+    padding: var(--lp-sp-2) var(--lp-sp-3);
+  }
+  /* inline amount sizes need the override at phone width */
+  .lp .lp-hero-cards .lp-field .amt {
+    font-size: 1rem !important;
+  }
+  .lp .lp-hero-cards .lp-field .sub {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+  .lp .lp-hero-cards .lp-mrow {
+    font-size: 0.6875rem;
+    padding: 6px 1px;
+  }
+  .lp .lp-pillars,
+  .lp .lp-steps {
+    grid-template-columns: 1fr 1fr;
+    gap: var(--lp-sp-3);
+  }
+  .lp .lp-pillar:last-child,
+  .lp .lp-step:last-child {
+    grid-column: 1 / -1;
+  }
+  .lp .lp-pillar,
+  .lp .lp-step {
+    padding: var(--lp-sp-4);
+    gap: var(--lp-sp-2);
+  }
+  .lp .lp-pillar .num {
+    font-size: 1.75rem;
+  }
+  .lp .lp-pillar p,
+  .lp .lp-step p {
+    font-size: 0.8125rem;
+  }
+  .lp .lp-bento {
+    grid-template-columns: 1fr 1fr;
+    gap: var(--lp-sp-3);
+    grid-template-areas:
+      "passkey passkey"
+      "policies policies"
+      "swaps fees"
+      "verify trust"
+      "cleanup cleanup"
+      "custody custody"
+      "sdk sdk";
+  }
+  .lp .lp-tile p {
+    font-size: 0.8125rem;
+  }
+  .lp .lp-tile .ico {
+    width: 36px;
+    height: 36px;
+  }
+  .lp .lp-tile--passkey .lp-field {
+    display: none;
+  }
+  .lp .lp-tile--passkey h4 {
+    font-size: 1.1875rem;
+  }
+  .lp .lp-foot-cols {
+    grid-template-columns: 1fr 1fr;
+  }
+  .lp .lp-hero {
+    padding-top: var(--lp-sp-lg);
+  }
+  /* Tighter mobile rhythm — the desktop scale makes phone pages very tall */
+  .lp .lp-sec {
+    padding-block: var(--lp-sp-lg);
+  }
+  .lp .lp-cta {
+    padding-block: var(--lp-sp-xl);
+  }
+  .lp .lp-tile {
+    padding: var(--lp-sp-4);
+  }
+  .lp .lp-hero-cards {
+    margin-top: var(--lp-sp-lg);
+  }
+}
+
+/* ---- Reduced motion ------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .lp *,
+  .lp *::before,
+  .lp *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  /* motion.tsx also bails entirely — no Lenis, no GSAP tweens. */
+}

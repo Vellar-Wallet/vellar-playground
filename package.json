@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "iron-session": "^8.0.4",
     "next": "16.3.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"
