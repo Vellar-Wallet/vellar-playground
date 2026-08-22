@@ -108,7 +108,14 @@ describe("secret key never leaks via the session API", () => {
         expect(getRawText).not.toContain(session!.secretKey!);
         expect(getRawText.includes("secretKey")).toBe(false);
       },
-      30_000,
+      // POST /api/session/create now does real work beyond friendbot: a
+      // catalog price lookup, then a classic-Horizon USDC trustline open +
+      // DEX path-payment purchase (lib/usdc.ts), each bounded at
+      // SUBMIT_TIMEOUT_SECONDS=35s worst case, sequentially — so the call
+      // can legitimately take upwards of a minute on a slow testnet day.
+      // 120s gives real margin above that worst case rather than a value
+      // that just barely covers the happy path.
+      120_000,
     );
   });
 

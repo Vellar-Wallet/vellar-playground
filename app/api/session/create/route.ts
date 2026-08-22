@@ -7,7 +7,8 @@ import {
   walletCreationLimiter,
 } from "@/lib/rate-limit";
 import { getSession, THIRTY_MINUTES_IN_MS } from "@/lib/session";
-import { fundWithFriendbot, getXlmBalance } from "@/lib/stellar";
+import { fundWithFriendbot, getUsdcBalance, getXlmBalance } from "@/lib/stellar";
+import { determineUsdcFundingTarget, provisionUsdc } from "@/lib/usdc";
 
 // POST /api/session/create takes no meaningful body. Reject anything over a
 // small cap fast, before any other work (keypair generation, friendbot call,
@@ -35,6 +36,26 @@ function jsonWithCookies(scratch: Response, body: unknown, status = 200): Respon
     res.headers.append("set-cookie", cookie);
   }
   return res;
+}
+
+/**
+ * Read the wallet's current live USDC state from Horizon for the response.
+ * Used on all three response paths (existing session, IP-tracked session
+ * reuse, and a freshly-provisioned wallet) so the client always sees real
+ * on-chain truth rather than a cached "did provisioning succeed at creation
+ * time" flag — USDC balance isn't persisted anywhere in the session/tracker,
+ * deliberately: re-querying Horizon is the same pattern balanceXlm already
+ * uses, and it stays correct even if the wallet's USDC balance changes after
+ * a payment.
+ */
+async function usdcResponseFields(publicKey: string): Promise<{ usdcProvisioned: boolean; balanceUsdc?: string }> {
+  try {
+    const balance = await getUsdcBalance(publicKey);
+    return balance !== null ? { usdcProvisioned: true, balanceUsdc: balance } : { usdcProvisioned: false };
+  } catch (err) {
+    console.error("usdcResponseFields: USDC balance lookup failed:", err);
+    return { usdcProvisioned: false };
+  }
 }
 
 /**
@@ -112,7 +133,8 @@ export async function POST(req: Request): Promise<Response> {
     // rather than minting a second wallet.
     if (session.publicKey && session.secretKey && !isSessionExpired(session.createdAt, now)) {
       const balanceXlm = await getXlmBalance(session.publicKey).catch(() => null);
-      return jsonWithCookies(scratch, { publicKey: session.publicKey, balanceXlm: balanceXlm ?? "0" });
+      const usdc = await usdcResponseFields(session.publicKey);
+      return jsonWithCookies(scratch, { publicKey: session.publicKey, balanceXlm: balanceXlm ?? "0", ...usdc });
     }
 
     // Case 2: no valid cookie, but this IP already has another active,
@@ -129,7 +151,8 @@ export async function POST(req: Request): Promise<Response> {
       await session.save();
 
       const balanceXlm = await getXlmBalance(tracked.publicKey).catch(() => null);
-      return jsonWithCookies(scratch, { publicKey: tracked.publicKey, balanceXlm: balanceXlm ?? "0" });
+      const usdc = await usdcResponseFields(tracked.publicKey);
+      return jsonWithCookies(scratch, { publicKey: tracked.publicKey, balanceXlm: balanceXlm ?? "0", ...usdc });
     }
     if (tracked) {
       // Was tracked but expired — stop tracking it so it doesn't linger.
@@ -184,7 +207,24 @@ export async function POST(req: Request): Promise<Response> {
 
     setActiveSessionForIp(ip, { publicKey, secretKey, createdAt: now });
 
-    return jsonWithCookies(scratch, { publicKey, balanceXlm });
+    // USDC provisioning (trustline + DEX purchase) is a secondary step on
+    // top of an already-successful wallet creation: the XLM funding above is
+    // this endpoint's core promise, and a USDC hiccup must not undo it or
+    // fail the whole request. See lib/usdc.ts's provisionUsdc — it never
+    // throws, always resolving to a discriminated ok/false result.
+    const target = await determineUsdcFundingTarget();
+    const provisioned = await provisionUsdc(keypair, target);
+    if (!provisioned.ok) {
+      console.error(`USDC provisioning did not complete for ${publicKey}: ${provisioned.reason}`);
+      return jsonWithCookies(scratch, { publicKey, balanceXlm, usdcProvisioned: false });
+    }
+
+    return jsonWithCookies(scratch, {
+      publicKey,
+      balanceXlm,
+      usdcProvisioned: true,
+      balanceUsdc: provisioned.balanceUsdc,
+    });
   } catch (err) {
     console.error("POST /api/session/create failed:", err);
     return jsonError(500, "internal_error", "Something went wrong, please try again in a moment.");

@@ -1,14 +1,17 @@
 /**
- * Testnet Stellar helpers: fund a fresh keypair via friendbot, and read a
- * live XLM balance from Horizon. Both talk to the public Stellar testnet
+ * Testnet Stellar helpers: fund a fresh keypair via friendbot, and read live
+ * XLM/USDC balances from Horizon. All talk to the public Stellar testnet
  * infrastructure directly over `fetch` — no SDK server client needed for
- * these two reads.
+ * these reads (the classic trustline+DEX-purchase operations that need the
+ * full SDK live in lib/usdc.ts).
  *
  * Every function here throws plain `Error`s with a technical message. Route
  * handlers are responsible for catching those, logging the detail with
  * `console.error`, and turning them into human-readable responses — nothing
  * in this file should ever be surfaced verbatim to an HTTP caller.
  */
+
+import { USDC_ISSUER } from "@/lib/config";
 
 const FRIENDBOT_URL = "https://friendbot.stellar.org/";
 const HORIZON_URL = "https://horizon-testnet.stellar.org";
@@ -66,4 +69,36 @@ export async function getXlmBalance(publicKey: string): Promise<string> {
     throw new Error("horizon account response had no native balance entry");
   }
   return native.balance;
+}
+
+/**
+ * Read the current testnet USDC balance for `publicKey` from Horizon, if the
+ * account holds a trustline to it. Returns `null` (not a thrown error) when
+ * there is simply no USDC trustline yet — that is an expected, non-exceptional
+ * state (e.g. a wallet whose USDC provisioning step hasn't run or didn't
+ * complete), not a failure of this read. Still throws on a genuine
+ * network/Horizon failure, same as `getXlmBalance`.
+ */
+export async function getUsdcBalance(publicKey: string): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`, {
+      signal: AbortSignal.timeout(FRIENDBOT_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new Error(`horizon request failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`horizon returned HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  const account = (await res.json()) as {
+    balances?: Array<{ asset_code?: string; asset_issuer?: string; balance: string }>;
+  };
+  const line = account.balances?.find(
+    (b) => b.asset_code === "USDC" && b.asset_issuer === USDC_ISSUER,
+  );
+  return line?.balance ?? null;
 }

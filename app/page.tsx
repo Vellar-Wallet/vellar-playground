@@ -10,6 +10,8 @@ import { Eyebrow, Field, LpActionButton, MonoRow, MonoRows, TokenPill } from "./
 interface WalletState {
   publicKey: string;
   balanceXlm: string;
+  usdcProvisioned: boolean;
+  balanceUsdc?: string;
 }
 
 type WalletStage =
@@ -145,7 +147,15 @@ export default function Home() {
         setWallet({ status: "error", message: body?.message || "We couldn't set up your wallet. Please try again." });
         return;
       }
-      setWallet({ status: "ready", wallet: { publicKey: body.publicKey, balanceXlm: body.balanceXlm } });
+      setWallet({
+        status: "ready",
+        wallet: {
+          publicKey: body.publicKey,
+          balanceXlm: body.balanceXlm,
+          usdcProvisioned: Boolean(body.usdcProvisioned),
+          balanceUsdc: body.balanceUsdc,
+        },
+      });
     } catch {
       setWallet({ status: "error", message: "We couldn't reach the server. Please check your connection and try again." });
     }
@@ -280,7 +290,7 @@ function WalletSection({
     );
   }
 
-  const { publicKey, balanceXlm } = wallet.wallet;
+  const { publicKey, balanceXlm, usdcProvisioned, balanceUsdc } = wallet.wallet;
   const explorerUrl = `https://stellar.expert/explorer/testnet/account/${publicKey}`;
 
   return (
@@ -318,6 +328,14 @@ function WalletSection({
           }
         />
         <Field label="BALANCE" amount={balanceXlm} token={<TokenPill label="XLM" />} />
+        {usdcProvisioned && balanceUsdc ? (
+          <Field label="BALANCE" amount={balanceUsdc} token={<TokenPill label="USDC" usdc />} />
+        ) : (
+          <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
+            USDC funding didn&apos;t complete — you can still browse the catalog, but paying may not work
+            yet.
+          </p>
+        )}
       </div>
     </div>
   );
