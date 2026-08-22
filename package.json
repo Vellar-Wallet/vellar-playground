@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^16.2.0",
+    "@x402/core": "^2.23.0",
+    "@x402/extensions": "^2.23.0",
+    "@x402/stellar": "^2.23.0",
     "iron-session": "^8.0.4",
     "next": "16.3.2",
     "react": "19.2.8",
