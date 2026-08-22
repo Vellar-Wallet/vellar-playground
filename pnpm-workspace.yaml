@@ -1,3 +1,6 @@
 allowBuilds:
+  # esbuild's postinstall only fetches its own platform-specific binary
+  # (needed transitively by vitest/vite). Standard, widely-used package.
+  esbuild: true
   sharp: false
   unrs-resolver: false
