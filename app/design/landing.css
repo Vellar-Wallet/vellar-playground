@@ -1464,6 +1464,49 @@
   background: var(--lp-mint);
 }
 
+/* Payment ledger's per-step "raw wire bytes" disclosure (Station 1) — the
+   FAQ section's .lp-fitem pattern (rotating "+" marker), adapted to sit
+   inside the dark .lp-trace-panel and at a much smaller scale than a
+   full-width FAQ entry: compact summary type, no large padding, dark-panel
+   colors instead of the light-section defaults. */
+.lp .lp-fitem--raw {
+  border-bottom: 1px solid var(--lp-line-dark);
+  margin-bottom: 2px;
+}
+.lp .lp-fitem--raw summary {
+  padding: 6px 2px;
+  font-family: var(--lp-mono);
+  font-weight: 700;
+  font-size: 0.75rem;
+  color: var(--lp-on-dark-faint);
+}
+.lp .lp-fitem--raw summary:hover {
+  color: var(--lp-on-dark);
+}
+.lp .lp-fitem--raw summary .pm {
+  width: 18px;
+  height: 18px;
+  font-size: 0.75rem;
+  background: var(--lp-line-dark);
+  color: var(--lp-on-dark);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%);
+}
+.lp .lp-fitem--raw[open] summary .pm {
+  background: var(--lp-mint);
+  color: var(--lp-ink);
+}
+.lp .lp-fitem--raw .body {
+  padding: 0 2px var(--lp-sp-3);
+  max-width: none;
+}
+.lp .lp-fitem--raw .body .lp-mrow {
+  border-color: var(--lp-line-dark);
+  font-size: 0.75rem;
+}
+.lp .lp-fitem--raw .body .lp-mrow span {
+  color: var(--lp-on-dark-soft);
+}
+
 /* ---- Platform cards ------------------------------------------- */
 
 .lp .lp-plat {
