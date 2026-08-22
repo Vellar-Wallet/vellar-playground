@@ -79,6 +79,12 @@ export type ProvisionUsdcResult =
   | { ok: true; balanceUsdc: string }
   | { ok: false; reason: string };
 
+/** Result of just the trustline step — see `openUsdcTrustline`. */
+export type OpenTrustlineResult = { ok: true } | { ok: false; reason: string };
+
+/** Result of just the purchase step — see `buyUsdc`. */
+export type BuyUsdcResult = { ok: true; balanceUsdc: string } | { ok: false; reason: string };
+
 /** Format an atomic (7-decimal) amount as the decimal string the Stellar SDK
  *  expects for `Operation.pathPaymentStrictReceive`'s `destAmount`/`amount`
  *  fields (e.g. "0.5000000" -> destAmount "0.5"). */
@@ -169,37 +175,22 @@ export async function determineUsdcFundingTarget(): Promise<string> {
 }
 
 /**
- * Provision `keypair`'s account with USDC: open a trustline to Circle's
- * testnet USDC issuer, then buy `targetAmountAtomic` (a base-10 atomic
- * string, 7 decimals) worth of it via a strict-receive path payment funded
- * by the wallet's own XLM.
+ * Step 1 of USDC provisioning: open a trustline to Circle's testnet USDC
+ * issuer on `keypair`'s account.
  *
  * Never throws. Returns `{ ok: false, reason }` (a short, client-safe
- * string — never a raw SDK error) for any expected failure: bad trustline,
- * no DEX path, failed purchase, or a bound-exceeding delay. Full detail is
- * always logged server-side via console.error first.
+ * string — never a raw SDK error) on failure. Full detail is always logged
+ * server-side via console.error first.
  *
- * On success, re-reads the account's real USDC balance from Horizon rather
- * than assuming the requested `destAmount` landed exactly — strict-receive
- * fills should match the requested amount exactly by construction, but we
- * verify against live chain state regardless rather than trusting the
- * request parameters.
+ * Split out from the former single `provisionUsdc` so a caller (the
+ * streaming session/create route) can emit a progress event between this
+ * step and `buyUsdc` — each step only reports "done" once its own real
+ * Horizon submission has actually resolved.
  */
-export async function provisionUsdc(
-  keypair: Keypair,
-  targetAmountAtomic: string,
-): Promise<ProvisionUsdcResult> {
-  if (!/^\d+$/.test(targetAmountAtomic) || BigInt(targetAmountAtomic) <= BigInt(0)) {
-    console.error(`provisionUsdc: invalid targetAmountAtomic "${targetAmountAtomic}"`);
-    return { ok: false, reason: "invalid funding target" };
-  }
-
+export async function openUsdcTrustline(keypair: Keypair): Promise<OpenTrustlineResult> {
   const horizon = new Horizon.Server(HORIZON_URL);
   const asset = new Asset("USDC", USDC_ISSUER);
-  const targetAtomic = BigInt(targetAmountAtomic);
-  const destAmount = atomicToDecimalString(targetAtomic);
 
-  // 1. Open the trustline.
   const trustlineResult = await submitClassic(
     horizon,
     keypair,
@@ -209,8 +200,36 @@ export async function provisionUsdc(
   if (!trustlineResult.ok) {
     return { ok: false, reason: "couldn't open a USDC trustline" };
   }
+  return { ok: true };
+}
 
-  // 2. Find a route and buy destAmount of USDC, paying in XLM.
+/**
+ * Step 2 of USDC provisioning: buy `targetAmountAtomic` (a base-10 atomic
+ * string, 7 decimals) worth of USDC via a strict-receive path payment funded
+ * by the wallet's own XLM. Assumes a trustline is already open (see
+ * `openUsdcTrustline`) — calling this without one will simply fail the
+ * purchase submission and return `{ ok: false }`, same as any other
+ * submission failure.
+ *
+ * Never throws. Returns `{ ok: false, reason }` for any expected failure: no
+ * DEX path, failed purchase, or a bound-exceeding delay. On success,
+ * re-reads the account's real USDC balance from Horizon rather than assuming
+ * the requested `destAmount` landed exactly — strict-receive fills should
+ * match the requested amount exactly by construction, but we verify against
+ * live chain state regardless rather than trusting the request parameters.
+ */
+export async function buyUsdc(keypair: Keypair, targetAmountAtomic: string): Promise<BuyUsdcResult> {
+  if (!/^\d+$/.test(targetAmountAtomic) || BigInt(targetAmountAtomic) <= BigInt(0)) {
+    console.error(`buyUsdc: invalid targetAmountAtomic "${targetAmountAtomic}"`);
+    return { ok: false, reason: "invalid funding target" };
+  }
+
+  const horizon = new Horizon.Server(HORIZON_URL);
+  const asset = new Asset("USDC", USDC_ISSUER);
+  const targetAtomic = BigInt(targetAmountAtomic);
+  const destAmount = atomicToDecimalString(targetAtomic);
+
+  // Find a route and buy destAmount of USDC, paying in XLM.
   //
   // @stellar/stellar-sdk@16.2.0 type bug: `Horizon.Server#strictReceivePaths`
   // is declared to return `PathCallBuilder` (the builder behind the
@@ -231,14 +250,14 @@ export async function provisionUsdc(
       .strictReceivePaths([Asset.native()], asset, destAmount)
       .call()) as unknown as Horizon.ServerApi.CollectionPage<Horizon.ServerApi.PaymentPathRecord>;
     if (!paths.records.length) {
-      console.error(`provisionUsdc: no XLM->USDC DEX path for destAmount=${destAmount}`);
+      console.error(`buyUsdc: no XLM->USDC DEX path for destAmount=${destAmount}`);
       return { ok: false, reason: "no USDC market route available on testnet right now" };
     }
     path = paths.records[0].path.map((p) =>
       p.asset_type === "native" ? Asset.native() : new Asset(p.asset_code!, p.asset_issuer!),
     );
   } catch (err) {
-    console.error("provisionUsdc: strictReceivePaths lookup failed:", err);
+    console.error("buyUsdc: strictReceivePaths lookup failed:", err);
     return { ok: false, reason: "couldn't look up a USDC purchase route" };
   }
 
@@ -264,22 +283,40 @@ export async function provisionUsdc(
     return { ok: false, reason: "couldn't buy USDC on the testnet market" };
   }
 
-  // 3. Re-read the real balance from Horizon rather than assuming destAmount
-  //    landed exactly.
+  // Re-read the real balance from Horizon rather than assuming destAmount
+  // landed exactly.
   try {
     const account = await fetchAccountWithTimeout(keypair.publicKey());
     const line = account.balances?.find(
       (b) => b.asset_code === "USDC" && b.asset_issuer === USDC_ISSUER,
     );
     if (!line) {
-      console.error("provisionUsdc: purchase submitted successfully but no USDC balance line found afterward");
+      console.error("buyUsdc: purchase submitted successfully but no USDC balance line found afterward");
       return { ok: false, reason: "USDC purchase didn't complete as expected" };
     }
     return { ok: true, balanceUsdc: line.balance };
   } catch (err) {
-    console.error("provisionUsdc: post-purchase balance read failed:", err);
+    console.error("buyUsdc: post-purchase balance read failed:", err);
     return { ok: false, reason: "USDC purchase may have succeeded, but we couldn't confirm the balance" };
   }
+}
+
+/**
+ * Provision `keypair`'s account with USDC: open a trustline, then buy
+ * `targetAmountAtomic` worth of it. A thin sequential wrapper over
+ * `openUsdcTrustline` + `buyUsdc` for callers that don't need per-step
+ * progress (kept for parity with the pre-streaming API / any future
+ * non-streaming caller) — POST /api/session/create's streaming path calls
+ * the two steps directly instead, so it can emit a progress event between
+ * them. Never throws, same contract as its two halves.
+ */
+export async function provisionUsdc(
+  keypair: Keypair,
+  targetAmountAtomic: string,
+): Promise<ProvisionUsdcResult> {
+  const trustline = await openUsdcTrustline(keypair);
+  if (!trustline.ok) return trustline;
+  return buyUsdc(keypair, targetAmountAtomic);
 }
 
 async function fetchAccountWithTimeout(

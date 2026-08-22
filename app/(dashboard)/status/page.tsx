@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { Eyebrow, Field, LpActionButton, MonoRow, MonoRows } from "../design/ui";
+import { Eyebrow, Field, LpActionButton, MonoRow, MonoRows } from "../../design/ui";
 import { formatDuration, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 
@@ -158,40 +157,24 @@ export default function StatusPage() {
   const showColdStart = stage.status === "loading" && loadingElapsed >= Math.floor(SLOW_THRESHOLD_MS / 1000);
 
   return (
-    <main className="lp-wrap lp-hero">
-      <div className="lp-cta-row" style={{ marginTop: 0, marginBottom: "var(--lp-sp-6)" }}>
-        <Link href="/" style={{ fontSize: "0.875rem", textDecoration: "underline" }}>
-          ← Guided demo
-        </Link>
-        <Link href="/catalog" style={{ fontSize: "0.875rem", textDecoration: "underline" }}>
-          Catalog browser
-        </Link>
-        <Link href="/console" style={{ fontSize: "0.875rem", textDecoration: "underline" }}>
-          API console
-        </Link>
+    <>
+      <div className="lp-content-head">
+        <Eyebrow>Facilitator status</Eyebrow>
+        <h1>Live health, straight from the facilitator.</h1>
+        <p className="lp-lead">
+          Auto-refreshing snapshot of the real hosted facilitator&apos;s <code>/health</code> and{" "}
+          <code>/supported</code> endpoints — no session, no wallet, just what the service itself reports.
+        </p>
       </div>
 
-      <Eyebrow>Facilitator status</Eyebrow>
-      <h1>Live health, straight from the facilitator.</h1>
-      <p className="lp-lead">
-        Auto-refreshing snapshot of the real hosted facilitator&apos;s <code>/health</code> and{" "}
-        <code>/supported</code> endpoints — no session, no wallet, just what the service itself reports.
-      </p>
-
       {stage.status === "loading" && !showColdStart && (
-        <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)" }}>
-          Checking facilitator status…
-        </p>
+        <p className="lp-lead">Checking facilitator status…</p>
       )}
 
-      {showColdStart && (
-        <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)" }}>
-          Waking up the facilitator... ({loadingElapsed}s)
-        </p>
-      )}
+      {showColdStart && <p className="lp-lead">Waking up the facilitator... ({loadingElapsed}s)</p>}
 
       {stage.status === "error" && (
-        <div style={{ marginTop: "var(--lp-sp-6)" }}>
+        <div>
           <p className="lp-lead">{stage.message}</p>
           <div className="lp-cta-row">
             <LpActionButton variant="outline" onClick={() => load(true)}>
@@ -209,7 +192,7 @@ export default function StatusPage() {
           onRefresh={() => load(false)}
         />
       )}
-    </main>
+    </>
   );
 }
 
@@ -252,42 +235,7 @@ function StatusSnapshot({
 
   return (
     <>
-      {/* ---- Stat tiles ---- */}
-      <div className="lp-hero-cards" style={{ marginTop: "var(--lp-sp-8)", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-        <Field
-          label="STATUS"
-          amount={
-            <>
-              <IndicatorDot tone={indicator.tone} />
-              {indicator.label}
-            </>
-          }
-        />
-        <Field label="UPTIME" amount={formatDuration(health.uptimeSeconds ?? 0)} />
-        <Field label="CATALOG SIZE" amount={String(health.catalogSize ?? "—")} />
-        <Field
-          label="COMMIT"
-          amount={health.commit ? truncateMiddle(health.commit, 7, 0) : "—"}
-          amountStyle={{ fontFamily: "var(--lp-mono)", fontSize: "1.1rem" }}
-        />
-      </div>
-
-      {/* Bonus context: reverifyPending / unverifiableEntries, when present. */}
-      {(typeof health.reverifyPending === "number" || typeof health.unverifiableEntries === "number") && (
-        <div
-          className="lp-hero-cards"
-          style={{ marginTop: "var(--lp-sp-6)", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}
-        >
-          {typeof health.reverifyPending === "number" && (
-            <Field label="REVERIFY PENDING" amount={String(health.reverifyPending)} />
-          )}
-          {typeof health.unverifiableEntries === "number" && (
-            <Field label="UNVERIFIABLE ENTRIES" amount={String(health.unverifiableEntries)} />
-          )}
-        </div>
-      )}
-
-      <div className="lp-cta-row" style={{ alignItems: "center" }}>
+      <div className="lp-cta-row" style={{ marginTop: 0, alignItems: "center" }}>
         <span className="lp-lead" style={{ fontSize: "0.85rem" }}>
           Last updated {agoSeconds}s ago · auto-refreshes every 30s
         </span>
@@ -296,17 +244,54 @@ function StatusSnapshot({
         </LpActionButton>
       </div>
 
-      {/* ---- Live facilitator snapshot: supported kinds + signers ---- */}
-      <div className="lp-trace lp-invert" style={{ marginTop: "var(--lp-sp-xl)" }}>
-        <div className="lp-wrap" style={{ padding: "var(--lp-sp-lg) 0" }}>
-          <Eyebrow>Supported schemes &amp; networks</Eyebrow>
-          <h2 style={{ marginTop: "var(--lp-sp-4)" }}>What this facilitator can settle.</h2>
-          <p className="lp-lead">
+      <div className="lp-dgrid" style={{ marginTop: "var(--lp-sp-6)" }}>
+        {/* ---- Stat tiles panel ---- */}
+        <div className="lp-dpanel">
+          <div className="lp-dpanel-head">
+            <h2>At a glance</h2>
+          </div>
+          <div className="lp-hero-cards" style={{ marginTop: 0, gridTemplateColumns: "repeat(2, 1fr)" }}>
+            <Field
+              label="STATUS"
+              amount={
+                <>
+                  <IndicatorDot tone={indicator.tone} />
+                  {indicator.label}
+                </>
+              }
+            />
+            <Field label="UPTIME" amount={formatDuration(health.uptimeSeconds ?? 0)} />
+            <Field label="CATALOG SIZE" amount={String(health.catalogSize ?? "—")} />
+            <Field
+              label="COMMIT"
+              amount={health.commit ? truncateMiddle(health.commit, 7, 0) : "—"}
+              amountStyle={{ fontFamily: "var(--lp-mono)", fontSize: "1.1rem" }}
+            />
+          </div>
+
+          {/* Bonus context: reverifyPending / unverifiableEntries, when present. */}
+          {(typeof health.reverifyPending === "number" || typeof health.unverifiableEntries === "number") && (
+            <div className="lp-hero-cards" style={{ marginTop: "var(--lp-sp-2)", gridTemplateColumns: "repeat(2, 1fr)" }}>
+              {typeof health.reverifyPending === "number" && (
+                <Field label="REVERIFY PENDING" amount={String(health.reverifyPending)} />
+              )}
+              {typeof health.unverifiableEntries === "number" && (
+                <Field label="UNVERIFIABLE ENTRIES" amount={String(health.unverifiableEntries)} />
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ---- Supported kinds panel ---- */}
+        <div className="lp-dpanel lp-dpanel--dark">
+          <div className="lp-dpanel-head">
+            <Eyebrow>Supported schemes &amp; networks</Eyebrow>
+          </div>
+          <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
             Derived from <code>supported.kinds[]</code> — each entry pairs a scheme with a network and any
             notable <code>extra</code> flags.
           </p>
-
-          <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-8)" }}>
+          <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-2)" }}>
             <div className="head">
               <span>GET /supported</span>
               <span>{supported.kinds?.length ?? 0} kind(s)</span>
@@ -323,8 +308,17 @@ function StatusSnapshot({
               {(supported.kinds?.length ?? 0) === 0 && <MonoRow label="No supported kinds reported" />}
             </MonoRows>
           </div>
+        </div>
 
-          <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-6)" }}>
+        {/* ---- Sponsor signer panel ---- */}
+        <div className="lp-dpanel lp-dpanel--dark lp-dpanel--span2">
+          <div className="lp-dpanel-head">
+            <Eyebrow>Sponsor signer</Eyebrow>
+            <span className="lp-lead" style={{ fontSize: "0.8rem" }}>
+              {sponsorConfigured ? "configured" : "not detected"}
+            </span>
+          </div>
+          <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-2)" }}>
             <div className="head">
               <span>Sponsor signer</span>
               <span>{sponsorConfigured ? "configured" : "not detected"}</span>

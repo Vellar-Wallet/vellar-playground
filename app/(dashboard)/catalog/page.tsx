@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Eyebrow, LpActionButton } from "../design/ui";
+import { Eyebrow, LpActionButton } from "../../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 
@@ -160,94 +160,86 @@ export default function CatalogPage() {
   const displayed = isSearching ? search : catalog;
 
   return (
-    <main className="lp-wrap lp-hero">
-      <div className="lp-cta-row" style={{ marginTop: 0, marginBottom: "var(--lp-sp-6)" }}>
-        <Link href="/" style={{ fontSize: "0.875rem", textDecoration: "underline" }}>
-          ← Guided demo
-        </Link>
-        <Link href="/status" style={{ fontSize: "0.875rem", textDecoration: "underline" }}>
-          Facilitator status
-        </Link>
-        <Link href="/console" style={{ fontSize: "0.875rem", textDecoration: "underline" }}>
-          API console
-        </Link>
-      </div>
-
-      <Eyebrow>Bazaar catalog</Eyebrow>
-      <h1>Every resource the facilitator has seen.</h1>
-      <p className="lp-lead">
-        A browsing-only view of the live Bazaar catalog — descriptions, prices, ownership state, and
-        settlement counts, straight from the facilitator&apos;s <code>/discovery</code> endpoints.
-      </p>
-      <p className="lp-lead" style={{ fontSize: "0.9rem", marginTop: "var(--lp-sp-3)" }}>
-        Want to try paying one of these? <Link href="/" style={{ textDecoration: "underline" }}>Head to the guided demo →</Link>
-      </p>
-
-      {/* ---- Search box ---- */}
-      <div style={{ marginTop: "var(--lp-sp-8)" }}>
-        <label htmlFor="catalog-search" className="lp-eyebrow" style={{ display: "block", marginBottom: "var(--lp-sp-2)" }}>
-          Search the catalog
-        </label>
-        <input
-          id="catalog-search"
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g. quote"
-          className="lp-field"
-          style={{
-            width: "100%",
-            maxWidth: 420,
-            font: "inherit",
-            fontSize: "1rem",
-            color: "inherit",
-            display: "block",
-          }}
-        />
-      </div>
-
-      {/* ---- Results ---- */}
-      {displayed.status === "loading" && (
-        <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)" }}>
-          {isSearching ? `Searching... (${searchElapsed}s)` : `Waking up the facilitator... (${catalogElapsed}s)`}
+    <>
+      <div className="lp-content-head">
+        <Eyebrow>Bazaar catalog</Eyebrow>
+        <h1>Every resource the facilitator has seen.</h1>
+        <p className="lp-lead">
+          A browsing-only view of the live Bazaar catalog — descriptions, prices, ownership state, and
+          settlement counts, straight from the facilitator&apos;s <code>/discovery</code> endpoints.
         </p>
-      )}
+        <p className="lp-lead" style={{ fontSize: "0.9rem", marginTop: "var(--lp-sp-3)" }}>
+          Want to try paying one of these? <Link href="/" style={{ textDecoration: "underline" }}>Head to the guided demo →</Link>
+        </p>
+      </div>
 
-      {displayed.status === "error" && (
-        <div style={{ marginTop: "var(--lp-sp-6)" }}>
-          <p className="lp-lead">{displayed.message}</p>
-          <div className="lp-cta-row">
-            <LpActionButton
-              variant="outline"
-              onClick={() => (isSearching ? runSearch(query.trim()) : loadCatalog())}
-            >
-              Retry
-            </LpActionButton>
-          </div>
+      <div className="lp-dpanel" style={{ marginBottom: "var(--lp-sp-6)" }}>
+        {/* ---- Search box ---- */}
+        <div>
+          <label htmlFor="catalog-search" className="lp-eyebrow" style={{ display: "block", marginBottom: "var(--lp-sp-2)" }}>
+            Search the catalog
+          </label>
+          <input
+            id="catalog-search"
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="e.g. quote"
+            className="lp-field"
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              font: "inherit",
+              fontSize: "1rem",
+              color: "inherit",
+              display: "block",
+            }}
+          />
         </div>
-      )}
 
-      {displayed.status === "ready" && displayed.items.length === 0 && (
-        <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)" }}>
-          {isSearching ? `No resources matched "${query.trim()}".` : "No resources are cataloged yet."}
-        </p>
-      )}
+        {/* ---- Results ---- */}
+        {displayed.status === "loading" && (
+          <p className="lp-lead">
+            {isSearching ? `Searching... (${searchElapsed}s)` : `Waking up the facilitator... (${catalogElapsed}s)`}
+          </p>
+        )}
 
-      {displayed.status === "ready" && displayed.items.length > 0 && (
-        <>
-          {isSearching && "partialResults" in displayed && displayed.partialResults && (
-            <p className="lp-lead" style={{ fontSize: "0.85rem", marginTop: "var(--lp-sp-4)" }}>
-              Results are partial — the facilitator truncated this search.
-            </p>
-          )}
-          <div className="lp-rlist" style={{ marginTop: "var(--lp-sp-8)" }}>
-            {displayed.items.map((item) => (
-              <CatalogRow key={item.resource} item={item} />
-            ))}
+        {displayed.status === "error" && (
+          <div>
+            <p className="lp-lead">{displayed.message}</p>
+            <div className="lp-cta-row">
+              <LpActionButton
+                variant="outline"
+                onClick={() => (isSearching ? runSearch(query.trim()) : loadCatalog())}
+              >
+                Retry
+              </LpActionButton>
+            </div>
           </div>
-        </>
-      )}
-    </main>
+        )}
+
+        {displayed.status === "ready" && displayed.items.length === 0 && (
+          <p className="lp-lead">
+            {isSearching ? `No resources matched "${query.trim()}".` : "No resources are cataloged yet."}
+          </p>
+        )}
+
+        {displayed.status === "ready" && displayed.items.length > 0 && (
+          <>
+            {isSearching && "partialResults" in displayed && displayed.partialResults && (
+              <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
+                Results are partial — the facilitator truncated this search.
+              </p>
+            )}
+            <div className="lp-rlist">
+              {displayed.items.map((item) => (
+                <CatalogRow key={item.resource} item={item} />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

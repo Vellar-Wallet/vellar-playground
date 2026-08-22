@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import Link from "next/link";
-import { Eyebrow, LpActionButton } from "../design/ui";
+import { Eyebrow, LpActionButton } from "../../design/ui";
 import { FACILITATOR_URL } from "@/lib/config";
 
 // ---------------------------------------------------------------------------
@@ -155,27 +155,17 @@ export default function ConsolePage() {
   );
 
   return (
-    <main className="lp-wrap lp-hero">
-      <div className="lp-cta-row" style={{ marginTop: 0, marginBottom: "var(--lp-sp-6)" }}>
-        <Link href="/" style={{ fontSize: "0.875rem", textDecoration: "underline" }}>
-          ← Guided demo
-        </Link>
-        <Link href="/status" style={{ fontSize: "0.875rem", textDecoration: "underline" }}>
-          Facilitator status
-        </Link>
-        <Link href="/catalog" style={{ fontSize: "0.875rem", textDecoration: "underline" }}>
-          Catalog browser
-        </Link>
+    <>
+      <div className="lp-content-head">
+        <Eyebrow>API console</Eyebrow>
+        <h1>Every endpoint, raw.</h1>
+        <p className="lp-lead">
+          The full facilitator surface — run the real GET endpoints and see the actual JSON come back. POST
+          endpoints are shown illustratively; use the guided demo to trigger a real payment.
+        </p>
       </div>
 
-      <Eyebrow>API console</Eyebrow>
-      <h1>Every endpoint, raw.</h1>
-      <p className="lp-lead">
-        The full facilitator surface — run the real GET endpoints and see the actual JSON come back. POST
-        endpoints are shown illustratively; use the guided demo to trigger a real payment.
-      </p>
-
-      <div style={{ marginTop: "var(--lp-sp-xl)", display: "flex", flexDirection: "column", gap: "var(--lp-sp-8)" }}>
+      <div className="lp-dgrid lp-dgrid--wide">
         {ENDPOINTS.map((endpoint) => (
           <EndpointCard
             key={endpoint.id}
@@ -187,7 +177,7 @@ export default function ConsolePage() {
           />
         ))}
       </div>
-    </main>
+    </>
   );
 }
 
@@ -205,83 +195,81 @@ function EndpointCard({
   onRun: () => void;
 }) {
   return (
-    <div className="lp-trace lp-invert">
-      <div className="lp-wrap" style={{ padding: "var(--lp-sp-8) 0" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "var(--lp-sp-3)" }}>
-          <h2 style={{ fontSize: "var(--lp-fs-h4)", fontFamily: "var(--lp-mono)" }}>
-            {endpoint.method} {endpoint.path}
-          </h2>
-        </div>
-        <p className="lp-lead" style={{ marginTop: "var(--lp-sp-3)" }}>
-          {endpoint.description}
-        </p>
-        <p className="lp-lead" style={{ fontSize: "0.8rem", fontFamily: "var(--lp-mono)", marginTop: "var(--lp-sp-2)" }}>
-          {endpoint.method} {fullUrl(endpoint.path)}
-        </p>
-
-        {endpoint.proxyPath ? (
-          <>
-            <div className="lp-cta-row" style={{ alignItems: "center" }}>
-              {endpoint.hasQueryParam && (
-                <input
-                  type="text"
-                  value={queryValue}
-                  onChange={(e) => onQueryChange(e.target.value)}
-                  placeholder="query, e.g. quote"
-                  style={{
-                    font: "inherit",
-                    fontSize: "0.9rem",
-                    padding: "8px 12px",
-                    background: "var(--lp-on-dark)",
-                    color: "var(--lp-ink)",
-                    border: 0,
-                  }}
-                />
-              )}
-              <LpActionButton variant="sun" size="sm" onClick={onRun} disabled={stage.status === "loading"}>
-                {stage.status === "loading" ? "Running…" : "Run →"}
-              </LpActionButton>
-              {stage.status === "ready" && (
-                <span className="lp-lead" style={{ fontSize: "0.8rem" }}>
-                  {stage.ms}ms
-                </span>
-              )}
-            </div>
-
-            {stage.status === "error" && (
-              <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", color: "var(--lp-coral)" }}>
-                {stage.message}
-              </p>
-            )}
-
-            {stage.status === "ready" && (
-              <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-6)" }}>
-                <div className="head">
-                  <span>Response</span>
-                  <span>200 OK</span>
-                </div>
-                <JsonBlock value={stage.body} />
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-6)" }}>
-              <div className="head">
-                <span>Illustrative request body</span>
-                <span>POST</span>
-              </div>
-              <JsonBlock text={ILLUSTRATIVE_BODY} />
-            </div>
-            <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.9rem" }}>
-              Use the guided demo page to trigger these →{" "}
-              <Link href="/" style={{ textDecoration: "underline", color: "var(--lp-mint)" }}>
-                Go to the demo
-              </Link>
-            </p>
-          </>
-        )}
+    <div className="lp-dpanel lp-dpanel--dark">
+      <div className="lp-dpanel-head">
+        <h2 style={{ fontSize: "var(--lp-fs-h4)", fontFamily: "var(--lp-mono)" }}>
+          {endpoint.method} {endpoint.path}
+        </h2>
       </div>
+      <p className="lp-lead" style={{ fontSize: "0.9rem" }}>
+        {endpoint.description}
+      </p>
+      <p className="lp-lead" style={{ fontSize: "0.8rem", fontFamily: "var(--lp-mono)" }}>
+        {endpoint.method} {fullUrl(endpoint.path)}
+      </p>
+
+      {endpoint.proxyPath ? (
+        <>
+          <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-4)", alignItems: "center" }}>
+            {endpoint.hasQueryParam && (
+              <input
+                type="text"
+                value={queryValue}
+                onChange={(e) => onQueryChange(e.target.value)}
+                placeholder="query, e.g. quote"
+                style={{
+                  font: "inherit",
+                  fontSize: "0.9rem",
+                  padding: "8px 12px",
+                  background: "var(--lp-on-dark)",
+                  color: "var(--lp-ink)",
+                  border: 0,
+                }}
+              />
+            )}
+            <LpActionButton variant="sun" size="sm" onClick={onRun} disabled={stage.status === "loading"}>
+              {stage.status === "loading" ? "Running…" : "Run →"}
+            </LpActionButton>
+            {stage.status === "ready" && (
+              <span className="lp-lead" style={{ fontSize: "0.8rem" }}>
+                {stage.ms}ms
+              </span>
+            )}
+          </div>
+
+          {stage.status === "error" && (
+            <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", color: "var(--lp-coral)" }}>
+              {stage.message}
+            </p>
+          )}
+
+          {stage.status === "ready" && (
+            <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-4)" }}>
+              <div className="head">
+                <span>Response</span>
+                <span>200 OK</span>
+              </div>
+              <JsonBlock value={stage.body} />
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-4)" }}>
+            <div className="head">
+              <span>Illustrative request body</span>
+              <span>POST</span>
+            </div>
+            <JsonBlock text={ILLUSTRATIVE_BODY} />
+          </div>
+          <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.9rem" }}>
+            Use the guided demo page to trigger these →{" "}
+            <Link href="/" style={{ textDecoration: "underline", color: "var(--lp-mint)" }}>
+              Go to the demo
+            </Link>
+          </p>
+        </>
+      )}
     </div>
   );
 }
