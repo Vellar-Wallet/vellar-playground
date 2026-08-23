@@ -1627,6 +1627,38 @@
   background: var(--lp-mint-soft);
 }
 
+/* .lp-rrow as a real, selectable <button> — /verify's resource picker.
+   Same row anatomy as the plain Bazaar list above; this modifier only adds
+   the interactive affordances a <button> needs (full-width block, reset
+   default button chrome, a hover/focus/selected treatment) rather than
+   introducing a second row layout. */
+.lp .lp-rrow--pick {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--lp-line);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lp .lp-rrow--pick:last-child {
+  border-bottom: 0;
+}
+.lp .lp-rrow--pick:hover {
+  background: var(--lp-paper-tint);
+}
+.lp .lp-rrow--pick:focus-visible {
+  outline: 2px solid var(--lp-ink);
+  outline-offset: -2px;
+}
+.lp .lp-rrow--pick[data-selected] {
+  background: var(--lp-paper);
+}
+.lp .lp-rrow--pick[data-selected] .ri {
+  background: var(--lp-mint);
+}
+
 /* ---- Section scaffolding -------------------------------------- */
 
 .lp .lp-sec {

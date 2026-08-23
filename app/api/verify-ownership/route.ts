@@ -1,7 +1,12 @@
 import { decodePaymentRequiredHeader } from "@x402/core/http";
-import { SELLER_URL } from "@/lib/config";
 import { CatalogFetchError, fetchCatalog, type CatalogItem } from "@/lib/catalog";
 import { fetchWithColdStartNotice } from "@/lib/fetch-with-cold-start-notice";
+import {
+  DEFAULT_VERIFY_ID,
+  verifiableResourceById,
+  verifiableResourceCatalogUrl,
+  verifiableResourceUrl,
+} from "@/lib/verifiable-resources";
 
 // A live seller fetch plus a facilitator catalog fetch, either of which can
 // hit a cold-start delay on Render's free tier — past the default 10s.
@@ -127,9 +132,22 @@ const FETCH_TIMEOUT_MS = 90_000;
 // up" framing instead of a silent wait.
 const COLD_START_AFTER_MS = 5_000;
 
+// SECURITY: this route's whole reason for skipping SSRF hardening is that
+// it never fetches a URL/path the client can steer — a client sends an
+// opaque `id`, the server looks up the corresponding path from
+// VERIFIABLE_RESOURCES (lib/verifiable-resources.ts, shared with /verify's
+// own picker UI so client and server can never drift on what's checkable).
+// Unlike POST /api/pay (which legitimately accepts an arbitrary
+// resourceUrl — paying is a different trust model: the user spends their
+// own session's funds, and the real safety boundary is the on-chain
+// settlement itself), this route can never be made to fetch a URL not
+// already in that fixed list, no matter what a client sends. See that
+// module's own doc comment for the full reasoning and the /inspect
+// path-param substitution it also handles.
 const HARDENING_DISCLOSURE =
   "The real facilitator also pins DNS and blocks private/internal addresses before fetching an arbitrary " +
-  "seller URL; this demo check skips that hardening since it's only ever pointed at a known, fixed demo resource.";
+  "seller URL; this demo check skips that hardening since it only ever fetches a fixed, pre-approved set of " +
+  "paths on the one known demo host, never a URL a visitor supplies.";
 
 const MECHANISM_DISCLOSURE =
   "The playground is performing the same check the facilitator runs — fetching the seller's own 402 challenge " +
@@ -206,7 +224,31 @@ function encodeEvent(event: StreamEvent): string {
   return `${JSON.stringify(event)}\n`;
 }
 
-export async function POST(): Promise<Response> {
+export async function POST(req: Request): Promise<Response> {
+  // The ONLY client input this route accepts — a lookup key into
+  // lib/verifiable-resources.ts's fixed list, never a URL/path. An
+  // unrecognized id fails closed to the default rather than passing
+  // anything through (see verify-ownership.no-session.test.ts's own test
+  // for this exact property, exercised with a real SSRF-shaped id).
+  let verifyId = DEFAULT_VERIFY_ID;
+  const text = await req.text().catch(() => "");
+  if (text.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (typeof parsed === "object" && parsed !== null && "id" in parsed) {
+        const candidate = (parsed as { id?: unknown }).id;
+        if (typeof candidate === "string" && verifiableResourceById(candidate)) {
+          verifyId = candidate;
+        }
+      }
+    } catch {
+      // Malformed JSON — fall back to the default rather than erroring;
+      // this route's whole surface is a demo convenience, not something
+      // that should 400 a visitor over a body-parsing edge case.
+    }
+  }
+  const resource = verifiableResourceById(verifyId)!;
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -220,9 +262,11 @@ export async function POST(): Promise<Response> {
         // Step 1: fetch the seller's 402 challenge — a plain unpaid GET, no
         // payment attached, no auth. Fresh, independent fetch (deliberately
         // NOT reusing Station 1's captured data, since the point is a live
-        // re-check, not a replay).
+        // re-check, not a replay). `resource` is resolved ONLY from the
+        // shared VERIFIABLE_RESOURCES list, by an id validated above —
+        // never client input directly, see that module's own doc comment.
         // -----------------------------------------------------------------
-        const resourceUrl = `${SELLER_URL.replace(/\/+$/, "")}/quote`;
+        const resourceUrl = verifiableResourceUrl(resource);
         const requestLine = `GET ${resourceUrl}`;
         emit({ step: "fetch_challenge", status: "active", requestLine });
 
@@ -303,14 +347,21 @@ export async function POST(): Promise<Response> {
 
         // -----------------------------------------------------------------
         // Step 4: fetch the public catalog (lib/catalog.ts's fetchCatalog(),
-        // already used elsewhere in this app) and find the demo seller's
+        // already used elsewhere in this app) and find this resource's
         // entry — read its REAL current bound payTo(s) and trust fields.
+        // Looked up via verifiableResourceCatalogUrl(), which accounts for
+        // /inspect's special case (the catalog lists it under the literal,
+        // unsubstituted ":address" placeholder, not the real address
+        // `resourceUrl` actually fetched — see that helper's own doc
+        // comment in lib/verifiable-resources.ts), otherwise falling back
+        // to the same URL that was just fetched.
         // -----------------------------------------------------------------
+        const lookupUrl = verifiableResourceCatalogUrl(resource);
         let catalogItem: CatalogItem | undefined;
         try {
           const catalog = await fetchCatalog();
           const items = Array.isArray(catalog.items) ? catalog.items : [];
-          catalogItem = items.find((item) => item.resource === resourceUrl);
+          catalogItem = items.find((item) => item.resource === lookupUrl);
         } catch (err) {
           const message =
             err instanceof CatalogFetchError
@@ -323,7 +374,7 @@ export async function POST(): Promise<Response> {
         }
 
         if (!catalogItem) {
-          const message = "The demo resource isn't in the facilitator's public catalog yet.";
+          const message = "This resource isn't in the facilitator's public catalog yet.";
           emit({ step: "compare_catalog", status: "error", message });
           emit({ step: "complete", status: "error", error: "not_cataloged", message });
           controller.close();
@@ -338,7 +389,7 @@ export async function POST(): Promise<Response> {
         emit({
           step: "compare_catalog",
           status: "done",
-          resource: catalogItem.resource ?? resourceUrl,
+          resource: catalogItem.resource ?? lookupUrl,
           boundPayTos,
           ownershipState: trust?.ownershipState,
           ownerVerified: trust?.ownerVerified,
@@ -359,15 +410,24 @@ export async function POST(): Promise<Response> {
         if (match && alreadyVerified) {
           verdictText = "Confirmed — already verified. This resource was proven earlier and that verdict is permanent.";
         } else if (match) {
-          verdictText = "Match — the seller's challenge names the bound address.";
+          // Genuinely common now that this route checks more than one
+          // resource: several of the 8 real vellar-seller-demo.onrender.com
+          // resources are settled but not yet verified (verification is an
+          // async, cooldown-gated side effect of settlement inside the real
+          // facilitator — see src/bazaar.ts's onAfterSettle hook — so a
+          // resource can settle several times and still be sitting
+          // unverified, waiting on its next re-probe). A payTo match here
+          // means the check the facilitator would run WOULD pass; it's
+          // simply not marked verified in the catalog yet.
+          verdictText = "Match — the seller's challenge names the bound address. This resource's own catalog state hasn't caught up to \"verified\" yet, but this live check confirms it would pass.";
         } else {
-          // Shouldn't happen against the real demo seller, but handled
-          // honestly rather than papered over (e.g. a transient network
-          // hiccup, or the bound address having genuinely changed).
+          // A genuine mismatch is possible but not expected for any
+          // resource on the known demo seller — handled honestly rather
+          // than papered over (e.g. a transient network hiccup, or the
+          // bound address having genuinely changed).
           verdictText =
-            "No match — the seller's challenge does not currently name the bound address. This is unexpected for " +
-            "the demo resource; it may indicate a transient issue or that the catalog and the live challenge are " +
-            "momentarily out of sync.";
+            "No match — the seller's challenge does not currently name the bound address. This is unexpected; it " +
+            "may indicate a transient issue or that the catalog and the live challenge are momentarily out of sync.";
         }
 
         emit({

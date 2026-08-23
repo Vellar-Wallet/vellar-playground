@@ -11,10 +11,17 @@
 // anything /pay loaded, and doesn't gate on useWallet() at all.
 // ---------------------------------------------------------------------------
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Eyebrow, LpActionButton, MonoRow, MonoRows } from "../../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
+import {
+  DEFAULT_VERIFY_ID,
+  VERIFIABLE_RESOURCES,
+  verifiableResourceCatalogUrl,
+  verifiableResourceUrl,
+  type VerifiableResource,
+} from "@/lib/verifiable-resources";
 
 interface CatalogItem {
   resource: string;
@@ -24,8 +31,6 @@ interface CatalogItem {
 }
 
 type CatalogStage = { status: "idle" } | { status: "loading" } | { status: "ready"; items: CatalogItem[] } | { status: "error" };
-
-const DEMO_RESOURCE_URL = "https://vellar-seller-demo.onrender.com/quote";
 
 type OwnershipStepName = "fetch_challenge" | "decode_header" | "parse_pay_to" | "compare_catalog" | "verdict";
 type OwnershipStepStatus = "pending" | "active" | "done" | "error";
@@ -118,7 +123,13 @@ async function copyToClipboard(text: string) {
 export default function VerifyPage() {
   const [catalog, setCatalog] = useState<CatalogStage>({ status: "idle" });
   const [ownership, setOwnership] = useState<OwnershipStage>({ status: "idle" });
+  const [selectedId, setSelectedId] = useState<string>(DEFAULT_VERIFY_ID);
   const ownershipElapsed = useElapsedSeconds(ownership.status === "checking" ? ownership.startedAt : null);
+
+  const selectedResource: VerifiableResource = useMemo(
+    () => VERIFIABLE_RESOURCES.find((r) => r.id === selectedId) ?? VERIFIABLE_RESOURCES[0],
+    [selectedId],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -172,7 +183,11 @@ export default function VerifyPage() {
     }
 
     try {
-      const res = await fetch("/api/verify-ownership", { method: "POST" });
+      const res = await fetch("/api/verify-ownership", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: selectedResource.id }),
+      });
       if (!res.ok || !res.body) {
         setOwnership((prev) => ({ status: "error", message: "We couldn't reach the server. Please try again.", steps: prev.status === "checking" ? prev.steps : steps }));
         return;
@@ -236,7 +251,19 @@ export default function VerifyPage() {
     }
   }
 
-  const demoItem = catalog.status === "ready" ? catalog.items.find((item) => item.resource === DEMO_RESOURCE_URL) : undefined;
+  // Every VERIFIABLE_RESOURCES entry, joined against whatever /api/catalog
+  // actually returned — looked up by verifiableResourceCatalogUrl() so
+  // /inspect's literal ":address" catalog listing resolves correctly (see
+  // that helper's own doc comment in lib/verifiable-resources.ts).
+  const catalogItemsByUrl = useMemo(() => {
+    const map = new Map<string, CatalogItem>();
+    if (catalog.status === "ready") {
+      for (const item of catalog.items) map.set(item.resource, item);
+    }
+    return map;
+  }, [catalog]);
+
+  const demoItem = catalogItemsByUrl.get(verifiableResourceCatalogUrl(selectedResource));
   const trust = trustLabel(demoItem?.trust);
   const accept = demoItem?.accepts?.[0];
   const boundPayTo = accept?.payTo;
@@ -244,6 +271,15 @@ export default function VerifyPage() {
   const settlements = demoItem?.trust && "settlements" in demoItem.trust ? (demoItem.trust as { settlements?: number }).settlements : undefined;
 
   const steps = ownership.status === "checking" || ownership.status === "success" || ownership.status === "error" ? ownership.steps : initialOwnershipSteps();
+
+  function selectResource(id: string) {
+    if (id === selectedId) return;
+    setSelectedId(id);
+    // A stale in-flight/finished run against the PREVIOUS resource reading
+    // as this one's result would be actively misleading — clear it back to
+    // idle so "Verify now" always reflects the currently selected resource.
+    setOwnership({ status: "idle" });
+  }
 
   return (
     <>
@@ -259,6 +295,45 @@ export default function VerifyPage() {
         </p>
       </div>
 
+      <div className="lp-dpanel lp-dpanel--mint" style={{ marginTop: "var(--lp-sp-6)" }}>
+        <div className="lp-dpanel-head">
+          <h3>Pick a resource to check</h3>
+        </div>
+        <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
+          All {VERIFIABLE_RESOURCES.length} of the demo seller&apos;s own resources — not just one. Each has already
+          settled at least once; most are settled-but-not-yet-reverified, since the facilitator only reverifies
+          ownership as a fire-and-forget side effect of a fresh settlement (see &quot;Verify now&quot; below for what
+          that means for the check you&apos;re about to run).
+        </p>
+        <div className="lp-rlist" style={{ marginTop: "var(--lp-sp-3)" }}>
+          {VERIFIABLE_RESOURCES.map((resource) => {
+            const item = catalogItemsByUrl.get(verifiableResourceCatalogUrl(resource));
+            const rowTrust = trustLabel(item?.trust);
+            const selected = resource.id === selectedId;
+            return (
+              <button
+                key={resource.id}
+                type="button"
+                className="lp-rrow lp-rrow--pick"
+                data-selected={selected || undefined}
+                onClick={() => selectResource(resource.id)}
+                aria-pressed={selected}
+              >
+                <span className="ri" aria-hidden />
+                <span className="rn">
+                  <b>{item?.description || resource.label}</b>
+                  <span>{truncateMiddle(verifiableResourceUrl(resource), 34, 12)}</span>
+                </span>
+                <span className="lp-verified" style={!rowTrust.verified ? { marginLeft: "auto", background: "var(--lp-paper-tint)" } : { marginLeft: "auto" }}>
+                  {rowTrust.verified ? "✓ " : ""}
+                  {catalog.status === "loading" ? "…" : rowTrust.text}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="lp-dgrid lp-dgrid--wide" style={{ marginTop: "var(--lp-sp-6)" }}>
         <div className="lp-dpanel lp-dpanel--sun">
           <div className="lp-dpanel-head">
@@ -266,7 +341,7 @@ export default function VerifyPage() {
           </div>
           {!demoItem && (
             <p className="lp-lead" style={{ fontSize: "0.9rem" }}>
-              {catalog.status === "loading" ? "Loading the catalog..." : "The demo resource isn't in the catalog yet."}
+              {catalog.status === "loading" ? "Loading the catalog..." : "This resource isn't in the catalog yet."}
             </p>
           )}
           {demoItem && (
@@ -309,13 +384,14 @@ export default function VerifyPage() {
             <h3>Verify now</h3>
           </div>
           <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
-            The playground is performing the same check the facilitator runs — fetching the seller&apos;s own 402
-            challenge and comparing the payTo it names against the bound address.
+            Checking <b>{selectedResource.label}</b>: the playground performs the same check the facilitator runs —
+            fetching this resource&apos;s own 402 challenge and comparing the payTo it names against the bound
+            address already on file.
           </p>
           <p className="lp-lead" style={{ fontSize: "0.75rem" }}>
             The real facilitator also pins DNS and blocks private/internal addresses before fetching an arbitrary
-            seller URL; this demo check skips that hardening since it&apos;s only ever pointed at a known, fixed demo
-            resource.
+            seller URL; this demo check skips that hardening since the resource you can pick above is always one of a
+            fixed, known-safe set — never an address you supply.
           </p>
 
           {ownership.status === "idle" && (
@@ -384,7 +460,7 @@ export default function VerifyPage() {
         </div>
       </div>
 
-      <RunVerifyOnYourMachine />
+      <RunVerifyOnYourMachine resource={selectedResource} />
     </>
   );
 }
@@ -461,11 +537,12 @@ function OwnershipStepRawBytes({ step, stepName }: { step: OwnershipStepState; s
   );
 }
 
-function RunVerifyOnYourMachine() {
+function RunVerifyOnYourMachine({ resource }: { resource: VerifiableResource }) {
   const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const resourceUrl = verifiableResourceUrl(resource);
 
   const curlSnippet = [
-    `curl -sD - ${DEMO_RESOURCE_URL} -o /dev/null \\`,
+    `curl -sD - ${resourceUrl} -o /dev/null \\`,
     `  | grep -i '^payment-required:' \\`,
     `  | cut -d' ' -f2 \\`,
     `  | tr -d '\\r' \\`,

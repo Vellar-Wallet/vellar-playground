@@ -13,12 +13,13 @@ process.env.SESSION_SECRET ??= "test-only-session-secret-that-is-at-least-32-cha
  * no secret key is ever in scope. This is the whole point of Station 2's
  * security story (see that route's module doc comment): it operates
  * entirely on public, unauthenticated data (the seller's own 402 challenge,
- * the facilitator's public catalog). Unlike POST /api/pay, the exported
- * handler here takes no Request argument at all (see route.ts's
- * `export async function POST(): Promise<Response>`) — there is
- * structurally no cookie for it to read, which these tests exercise
- * directly against the real live route rather than merely asserting via
- * source inspection.
+ * the facilitator's public catalog). Unlike POST /api/pay, this route never
+ * imports lib/session.ts anywhere in its module graph — the ONLY thing it
+ * reads off the Request now is an opaque `id` string, validated against a
+ * closed server-side allow-list (VERIFIABLE_RESOURCES in route.ts), never a
+ * cookie. These tests exercise that directly against the real live route
+ * (no Set-Cookie header, no secret-shaped bytes anywhere in the stream)
+ * rather than merely asserting via source inspection.
  */
 async function readNdjsonStream(res: Response): Promise<{ rawText: string; events: Record<string, unknown>[] }> {
   const rawText = await res.clone().text();
@@ -34,11 +35,11 @@ describe("POST /api/verify-ownership — no session involvement", () => {
   it(
     "runs the full 5-step live check with NO cookie at all, and reaches a terminal verdict",
     async () => {
-      // POST() takes no Request argument at all (see route.ts) — there is
-      // structurally no way for this handler to read a cookie even if it
-      // wanted to, which this test exercises directly rather than merely
-      // asserting via source inspection.
-      const res = await POST();
+      // A bare Request with a JSON body carrying an `id` — no cookie header
+      // at all, exercising directly (not just via source inspection) that
+      // the route genuinely has nothing to read even if a cookie were
+      // present, since it never looks for one.
+      const res = await POST(new Request("http://localhost/api/verify-ownership", { method: "POST", body: JSON.stringify({ id: "quote" }) }));
 
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("application/x-ndjson");
@@ -61,13 +62,19 @@ describe("POST /api/verify-ownership — no session involvement", () => {
       expect(rawText).not.toMatch(STELLAR_SECRET_KEY_SHAPE);
       expect(rawText.toLowerCase()).not.toContain("secretkey");
     },
-    30_000,
+    // A single seller fetch, bounded by the route's own FETCH_TIMEOUT_MS
+    // (90s — see route.ts's own doc comment on why: Render's free tier can
+    // take a while to wake a cold instance), plus one catalog fetch. 120s
+    // gives real margin above that 90s worst case, the same reasoning
+    // pay.secret-leak.test.ts's own 150s already applies to a heavier,
+    // multi-step payment cycle against this identical seller.
+    120_000,
   );
 
   it(
     "streams multiple distinct step events over real time (not one buffered chunk)",
     async () => {
-      const res = await POST();
+      const res = await POST(new Request("http://localhost/api/verify-ownership", { method: "POST", body: JSON.stringify({ id: "quote" }) }));
       expect(res.body).toBeTruthy();
 
       const reader = res.body!.getReader();
@@ -104,8 +111,63 @@ describe("POST /api/verify-ownership — no session involvement", () => {
       expect(typeof verdictEvent?.match).toBe("boolean");
       expect(typeof verdictEvent?.verdictText).toBe("string");
     },
-    30_000,
+    // A single seller fetch, bounded by the route's own FETCH_TIMEOUT_MS
+    // (90s — see route.ts's own doc comment on why: Render's free tier can
+    // take a while to wake a cold instance), plus one catalog fetch. 120s
+    // gives real margin above that 90s worst case, the same reasoning
+    // pay.secret-leak.test.ts's own 150s already applies to a heavier,
+    // multi-step payment cycle against this identical seller.
+    120_000,
   );
+
+  it(
+    "checks a NON-default resource (hash) against the real seller and catalog, resolved from the allow-list",
+    async () => {
+      // Proves the id -> path resolution genuinely reaches a different real
+      // resource, not just always the default "quote" regardless of what's
+      // sent — settlementCount/ownershipState will differ from quote's.
+      const res = await POST(new Request("http://localhost/api/verify-ownership", { method: "POST", body: JSON.stringify({ id: "hash" }) }));
+      expect(res.status).toBe(200);
+      const { events } = await readNdjsonStream(res);
+
+      const fetchEvent = events.find((e) => e.step === "fetch_challenge" && e.status === "done");
+      expect(typeof fetchEvent?.requestLine).toBe("string");
+      expect(fetchEvent?.requestLine as string).toContain("/hash");
+
+      const catalogEvent = events.find((e) => e.step === "compare_catalog" && e.status === "done");
+      expect(typeof catalogEvent?.resource).toBe("string");
+      expect(catalogEvent?.resource as string).toContain("/hash");
+
+      expect(events.at(-1)?.step).toBe("complete");
+    },
+    // A single seller fetch, bounded by the route's own FETCH_TIMEOUT_MS
+    // (90s — see route.ts's own doc comment on why: Render's free tier can
+    // take a while to wake a cold instance), plus one catalog fetch. 120s
+    // gives real margin above that 90s worst case, the same reasoning
+    // pay.secret-leak.test.ts's own 150s already applies to a heavier,
+    // multi-step payment cycle against this identical seller.
+    120_000,
+  );
+
+  it("falls back to the default resource for an id outside the allow-list — never passes it through as a path", async () => {
+    // The whole security property this route depends on: an unrecognized id
+    // must NOT reach the fetch as a raw path/URL — it silently falls back
+    // to the default rather than erroring OR (the actually dangerous
+    // failure mode) fetching whatever string was sent.
+    const res = await POST(
+      new Request("http://localhost/api/verify-ownership", {
+        method: "POST",
+        body: JSON.stringify({ id: "http://169.254.169.254/latest/meta-data/" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const { events } = await readNdjsonStream(res);
+    const fetchEvent = events.find((e) => e.step === "fetch_challenge" && e.status === "done");
+    expect(typeof fetchEvent?.requestLine).toBe("string");
+    // Fell back to the default ("quote"), never fetched the malicious id.
+    expect(fetchEvent?.requestLine as string).toContain("/quote");
+    expect(fetchEvent?.requestLine as string).not.toContain("169.254.169.254");
+  });
 
   it("rejects GET with 405, since a fresh live check is a POST-shaped action", async () => {
     const res = await GET();
