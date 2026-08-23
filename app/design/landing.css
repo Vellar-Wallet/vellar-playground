@@ -556,6 +556,14 @@
    on the left, which a logo lockup of fixed width can't do. Same
    left-lockup/right-status header pattern rail402's own playground uses. */
 .lp .lp-page-header {
+  position: sticky;
+  top: 0;
+  /* Above .lp-sidebar's own sticky positioning (which already assumes a
+     64px header — see its `top: calc(64px + var(--lp-sp-4))` — this just
+     makes that assumption true instead of the header scrolling out from
+     under it) and above .lp-stationnav (z-index: 30, see that rule's own
+     top offset below), so the header stays the topmost sticky layer. */
+  z-index: 40;
   height: 64px;
   display: flex;
   align-items: center;
@@ -1111,15 +1119,19 @@
    inside the existing content column and reuses the exact sticky + border
    + paper-ground recipe .lp-nav-outer already establishes — a vertical
    sibling of that pattern, not a new one. Real tabs now (both here and on
-   /bond) — one station's content visible at a time via a hidden tabpanel,
-   not a scroll-spy anchor bar (that's the earlier design; both consumers
-   converted away from it after user feedback that the anchor bar visually
+   /bond, its only consumer now — the "/" home page's own former station
+   tabs were removed entirely once Stations 1/2/3 each became their own
+   top-level route) — one part's content visible at a time via a hidden
+   tabpanel, not a scroll-spy anchor bar (that's the earlier design,
+   converted away from after user feedback that the anchor bar visually
    read as tabs but never behaved like them). Sticky positioning is kept
    because it's still useful on its own: the tab bar stays reachable while
-   scrolling a tall tab's content. */
+   scrolling a tall tab's content. top offset accounts for .lp-page-header
+   now also being sticky at top:0 — without this, the two would stack at
+   the same position instead of the tab bar sitting just below the header. */
 .lp .lp-stationnav {
   position: sticky;
-  top: 0;
+  top: 64px;
   z-index: 30;
   display: flex;
   gap: var(--lp-sp-2);
@@ -1162,10 +1174,12 @@
   color: var(--lp-ink);
 }
 @media (max-width: 900px) {
-  /* Stick below .lp-topbar (also sticky at top:0 under this breakpoint)
-     instead of underneath it. */
+  /* Three sticky layers stack at this width: .lp-page-header (top:0,
+     64px tall) + .lp-topbar (top:64px, 56px tall) + this bar — without
+     the offset below, .lp-stationnav's base top:64px would stick it
+     underneath .lp-topbar instead of below it. */
   .lp .lp-stationnav {
-    top: 64px;
+    top: 120px;
   }
 }
 
