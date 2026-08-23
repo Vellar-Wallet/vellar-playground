@@ -9,9 +9,11 @@ import {
   clearAll,
   readLastPayment,
   readSession,
+  writeAttackResult,
   writeLastPayment,
-  writeQuestProgress,
+  writeQuestLevel,
   writeSession,
+  type StoredAttackResult,
 } from "@/lib/local-storage";
 
 // ---------------------------------------------------------------------------
@@ -251,6 +253,106 @@ function parseOwnershipStreamLine(line: string): OwnershipEvent | null {
 }
 
 // ---------------------------------------------------------------------------
+// Station 3 — attack bench types. Two independent NDJSON streams (mirrors
+// POST /api/attack/payment and POST /api/attack/catalog's own wire-format
+// doc comments): each emits {"step":"attack","status":"active"|"done"|
+// "error","attackId":...} events and one terminal
+// {"step":"complete","status":"done"|"error",...}. Attack 8
+// (prompt_injection) is a separate, synchronous, non-streaming call to
+// POST /api/attack/sanitize and gets its own small state shape below.
+// ---------------------------------------------------------------------------
+
+type AttackBenchStatus = "pending" | "active" | "done" | "error";
+
+interface AttackBenchEntry {
+  status: AttackBenchStatus;
+  result?: StoredAttackResult;
+  message?: string;
+}
+
+const PAYMENT_ATTACK_IDS = ["tamper_amount", "redirect_payto", "strip_signature", "wrong_network", "replay"] as const;
+const CATALOG_ATTACK_IDS = ["ssrf_linklocal", "displace_verified"] as const;
+
+type PaymentAttackId = (typeof PAYMENT_ATTACK_IDS)[number];
+type CatalogAttackId = (typeof CATALOG_ATTACK_IDS)[number];
+
+const PAYMENT_ATTACK_LABELS: Record<PaymentAttackId, string> = {
+  tamper_amount: "Tamper the amount",
+  redirect_payto: "Redirect the payTo",
+  strip_signature: "Strip the signature",
+  wrong_network: "Claim an unregistered network",
+  replay: "Replay an already-settled payment",
+};
+
+const CATALOG_ATTACK_LABELS: Record<CatalogAttackId, string> = {
+  ssrf_linklocal: "Point at a blocked internal address",
+  displace_verified: "Displace an already-verified binding",
+};
+
+function initialPaymentAttackMap(): Record<PaymentAttackId, AttackBenchEntry> {
+  const pending: AttackBenchEntry = { status: "pending" };
+  return {
+    tamper_amount: { ...pending },
+    redirect_payto: { ...pending },
+    strip_signature: { ...pending },
+    wrong_network: { ...pending },
+    replay: { ...pending },
+  };
+}
+
+function initialCatalogAttackMap(): Record<CatalogAttackId, AttackBenchEntry> {
+  const pending: AttackBenchEntry = { status: "pending" };
+  return { ssrf_linklocal: { ...pending }, displace_verified: { ...pending } };
+}
+
+type PaymentAttackMap = Record<PaymentAttackId, AttackBenchEntry>;
+type CatalogAttackMap = Record<CatalogAttackId, AttackBenchEntry>;
+
+type PaymentAttackStage =
+  | { status: "idle" }
+  | { status: "running"; startedAt: number; attacks: PaymentAttackMap }
+  | { status: "done"; attacks: PaymentAttackMap }
+  | { status: "error"; message: string; attacks: PaymentAttackMap };
+
+type CatalogAttackStage =
+  | { status: "idle" }
+  | { status: "running"; startedAt: number; attacks: CatalogAttackMap }
+  | { status: "done"; attacks: CatalogAttackMap }
+  | { status: "error"; message: string; attacks: CatalogAttackMap };
+
+interface AttackStreamEvent {
+  step: string;
+  status: string;
+  attackId?: string;
+  result?: StoredAttackResult;
+  message?: string;
+  results?: StoredAttackResult[];
+  error?: string;
+  [key: string]: unknown;
+}
+
+function parseAttackStreamLine(line: string): AttackStreamEvent | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && typeof parsed.step === "string" && typeof parsed.status === "string") {
+      return parsed as AttackStreamEvent;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+interface SanitizeDemoState {
+  status: "idle" | "loading" | "done" | "error";
+  input: string;
+  result?: StoredAttackResult;
+  message?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
 
@@ -293,11 +395,16 @@ export default function Home() {
   const [pay, setPay] = useState<PayStage>({ status: "idle" });
   const [ownership, setOwnership] = useState<OwnershipStage>({ status: "idle" });
   const [copied, setCopied] = useState(false);
+  const [paymentAttacks, setPaymentAttacks] = useState<PaymentAttackStage>({ status: "idle" });
+  const [catalogAttacks, setCatalogAttacks] = useState<CatalogAttackStage>({ status: "idle" });
+  const [sanitizeDemo, setSanitizeDemo] = useState<SanitizeDemoState>({ status: "idle", input: "" });
 
   const walletElapsed = useElapsedSeconds(wallet.status === "loading" ? wallet.startedAt : null);
   const catalogElapsed = useElapsedSeconds(catalog.status === "loading" ? catalog.startedAt : null);
   const payElapsed = useElapsedSeconds(pay.status === "paying" ? pay.startedAt : null);
   const ownershipElapsed = useElapsedSeconds(ownership.status === "checking" ? ownership.startedAt : null);
+  const paymentAttacksElapsed = useElapsedSeconds(paymentAttacks.status === "running" ? paymentAttacks.startedAt : null);
+  const catalogAttacksElapsed = useElapsedSeconds(catalogAttacks.status === "running" ? catalogAttacks.startedAt : null);
 
   // Fetch the catalog automatically once a wallet exists.
   const fetchedForWallet = useRef(false);
@@ -522,9 +629,11 @@ export default function Home() {
      *     code: chosen over client-side subtracting the payment amount,
      *     since a fresh server read is real on-chain truth, not a fragile
      *     local computation).
-     *  3. vellar.questProgress — marks "station-1" (this six-step ledger /
-     *     first payment) complete. Key name chosen now so Station 2/3 can
-     *     agree on the same convention later; no UI reads this yet.
+     *  3. vellar.questProgress — marks Level 1 (this six-step ledger / first
+     *     payment) complete, with the real settlement tx hash as proof.
+     *     `verified: true` is honest here since this station already
+     *     independently confirms a real settlement happened (the "settle"
+     *     step's own done event), per this build's own evidence standard.
      */
     async function persistPaymentCompletion(result: PayCompleteResult) {
       writeLastPayment({
@@ -534,7 +643,7 @@ export default function Home() {
         amount: result.amount ?? "",
         timestamp: Date.now(),
       });
-      writeQuestProgress("station-1", true);
+      writeQuestLevel(1, { completedAt: Date.now(), proof: result.settlementTx, verified: true });
 
       try {
         const res = await fetch("/api/session");
@@ -744,16 +853,23 @@ export default function Home() {
   // involvement — this is public, unauthenticated data end to end.
   //
   // QUEST PROGRESS TRIGGER POINT (documented per the task's explicit ask):
-  // vellar.questProgress["station-2"] is written once this stream reaches
+  // vellar.questProgress[2] (Level 2) is written once this stream reaches
   // its terminal "complete" event with status "done" — i.e. once the live
   // re-verification check has genuinely run to a verdict (see the "verdict"
   // step's applyEvent branch below, which stashes the parsed
   // OwnershipVerdictResult, and the "complete" handling that persists it).
-  // This mirrors PayLedger's "station-1" trigger (written on that stream's
-  // own "complete"/"done"), so both stations agree on "the mechanism was
+  // This mirrors PayLedger's Level 1 trigger (written on that stream's own
+  // "complete"/"done"), so both stations agree on "the mechanism was
   // genuinely demonstrated to a terminal outcome" as the completion
   // signal — not merely "the button was clicked" (that fires on `checking`,
   // before anything real has happened yet).
+  //
+  // PROOF FIELD — DISCREPANCY, flagged rather than papered over (see
+  // lib/local-storage.ts's StoredQuestLevel doc comment for the full
+  // reasoning): Station 2 is read-only and never produces an XDR. The proof
+  // written below is `verdictText` — the real verdict Station 2's own
+  // "verdict" step produces (e.g. "Confirmed — already verified..."), the
+  // actual evidence this station generates.
   async function runVerifyOwnership() {
     const steps = initialOwnershipSteps();
     setOwnership({ status: "checking", startedAt: Date.now(), steps: { ...steps } });
@@ -816,7 +932,11 @@ export default function Home() {
                   : [],
                 boundPayTos: Array.isArray(verdictEvent.boundPayTos) ? (verdictEvent.boundPayTos as string[]) : [],
               };
-              writeQuestProgress("station-2", true);
+              writeQuestLevel(2, {
+                completedAt: Date.now(),
+                proof: verdictEvent.verdictText,
+                verified: true,
+              });
               return { status: "success", result, steps: prev.steps };
             }
             return {
@@ -876,6 +996,245 @@ export default function Home() {
   }
 
   // ---------------------------------------------------------------------
+  // Station 3 — payment-attack track. Streams POST /api/attack/payment (see
+  // that route's wire-format doc comment): arms one real signed payload
+  // using the current session's wallet, then runs all 5 attacks live
+  // against the real facilitator. Requires a funded session — same
+  // precondition as Station 1.
+  // ---------------------------------------------------------------------
+  async function runPaymentAttacks() {
+    const attacks = initialPaymentAttackMap();
+    setPaymentAttacks({ status: "running", startedAt: Date.now(), attacks: { ...attacks } });
+
+    function applyAttackEvent(prev: PaymentAttackStage, event: AttackStreamEvent): PaymentAttackStage {
+      if (prev.status !== "running") return prev;
+      const attackId = event.attackId as PaymentAttackId | undefined;
+      if (!attackId || !(attackId in prev.attacks)) return prev;
+      if (event.status === "active") {
+        return { ...prev, attacks: { ...prev.attacks, [attackId]: { status: "active" } } };
+      }
+      if (event.status === "done" && event.result) {
+        writeAttackResult(event.result);
+        return { ...prev, attacks: { ...prev.attacks, [attackId]: { status: "done", result: event.result } } };
+      }
+      if (event.status === "error") {
+        return {
+          ...prev,
+          attacks: { ...prev.attacks, [attackId]: { status: "error", message: event.message } },
+        };
+      }
+      return prev;
+    }
+
+    try {
+      const res = await fetch("/api/attack/payment", { method: "POST" });
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => ({}));
+        const message =
+          typeof body?.message === "string"
+            ? body.message
+            : "We couldn't reach the server. Please try again.";
+        setPaymentAttacks((prev) => ({
+          status: "error",
+          message,
+          attacks: prev.status === "running" ? prev.attacks : attacks,
+        }));
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let settled = false;
+
+      const finish = (event: AttackStreamEvent) => {
+        settled = true;
+        if (event.status === "done") {
+          setPaymentAttacks((prev) => ({ status: "done", attacks: prev.status === "running" ? prev.attacks : attacks }));
+          return;
+        }
+        const message = typeof event.message === "string" ? event.message : "The attack bench failed. Please try again.";
+        setPaymentAttacks((prev) => ({
+          status: "error",
+          message,
+          attacks: prev.status === "running" ? prev.attacks : attacks,
+        }));
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const event = parseAttackStreamLine(line);
+          if (!event) continue;
+          if (event.step === "complete") {
+            finish(event);
+            continue;
+          }
+          if (event.step === "attack") {
+            setPaymentAttacks((prev) => applyAttackEvent(prev, event));
+          }
+          // "armed" step events are intentionally not surfaced as their own
+          // row — the 5 attack rows below are the meaningful UI surface;
+          // arming failure is still caught by the "complete"/"error" path.
+        }
+      }
+
+      const trailing = parseAttackStreamLine(buffer);
+      if (trailing?.step === "complete") finish(trailing);
+
+      if (!settled) {
+        setPaymentAttacks((prev) => ({
+          status: "error",
+          message: "The connection ended before the attack bench finished. Please try again.",
+          attacks: prev.status === "running" ? prev.attacks : attacks,
+        }));
+      }
+    } catch {
+      setPaymentAttacks((prev) => ({
+        status: "error",
+        message: "We couldn't reach the server. Please check your connection and try again.",
+        attacks: prev.status === "running" ? prev.attacks : attacks,
+      }));
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Station 3 — catalog-attack track. Streams POST /api/attack/catalog (see
+  // that route's wire-format doc comment): both attacks are real live polls
+  // against the public facilitator, no session needed.
+  // ---------------------------------------------------------------------
+  async function runCatalogAttacks() {
+    const attacks = initialCatalogAttackMap();
+    setCatalogAttacks({ status: "running", startedAt: Date.now(), attacks: { ...attacks } });
+
+    function applyAttackEvent(prev: CatalogAttackStage, event: AttackStreamEvent): CatalogAttackStage {
+      if (prev.status !== "running") return prev;
+      const attackId = event.attackId as CatalogAttackId | undefined;
+      if (!attackId || !(attackId in prev.attacks)) return prev;
+      if (event.status === "active") {
+        return { ...prev, attacks: { ...prev.attacks, [attackId]: { status: "active" } } };
+      }
+      if (event.status === "done" && event.result) {
+        writeAttackResult(event.result);
+        return { ...prev, attacks: { ...prev.attacks, [attackId]: { status: "done", result: event.result } } };
+      }
+      if (event.status === "error") {
+        return {
+          ...prev,
+          attacks: { ...prev.attacks, [attackId]: { status: "error", message: event.message } },
+        };
+      }
+      return prev;
+    }
+
+    try {
+      const res = await fetch("/api/attack/catalog", { method: "POST" });
+      if (!res.ok || !res.body) {
+        setCatalogAttacks((prev) => ({
+          status: "error",
+          message: "We couldn't reach the server. Please try again.",
+          attacks: prev.status === "running" ? prev.attacks : attacks,
+        }));
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let settled = false;
+
+      const finish = (event: AttackStreamEvent) => {
+        settled = true;
+        if (event.status === "done") {
+          setCatalogAttacks((prev) => ({ status: "done", attacks: prev.status === "running" ? prev.attacks : attacks }));
+          return;
+        }
+        const message = typeof event.message === "string" ? event.message : "The attack bench failed. Please try again.";
+        setCatalogAttacks((prev) => ({
+          status: "error",
+          message,
+          attacks: prev.status === "running" ? prev.attacks : attacks,
+        }));
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const event = parseAttackStreamLine(line);
+          if (!event) continue;
+          if (event.step === "complete") {
+            finish(event);
+            continue;
+          }
+          if (event.step === "attack") {
+            setCatalogAttacks((prev) => applyAttackEvent(prev, event));
+          }
+        }
+      }
+
+      const trailing = parseAttackStreamLine(buffer);
+      if (trailing?.step === "complete") finish(trailing);
+
+      if (!settled) {
+        setCatalogAttacks((prev) => ({
+          status: "error",
+          message: "The connection ended before the attack bench finished. Please try again.",
+          attacks: prev.status === "running" ? prev.attacks : attacks,
+        }));
+      }
+    } catch {
+      setCatalogAttacks((prev) => ({
+        status: "error",
+        message: "We couldn't reach the server. Please check your connection and try again.",
+        attacks: prev.status === "running" ? prev.attacks : attacks,
+      }));
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Station 3 — attack 8 (prompt_injection). A single non-streaming call to
+  // POST /api/attack/sanitize — see that route's doc comment: this is a
+  // faithful LOCAL port of the facilitator's real sanitizer, not a live
+  // round-trip. The UI copy for this section says so explicitly.
+  // ---------------------------------------------------------------------
+  async function runSanitizeDemo(input: string) {
+    setSanitizeDemo({ status: "loading", input });
+    try {
+      const res = await fetch("/api/attack/sanitize", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: input }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSanitizeDemo({
+          status: "error",
+          input,
+          message: typeof body?.message === "string" ? body.message : "Something went wrong. Please try again.",
+        });
+        return;
+      }
+      const result = body as StoredAttackResult;
+      writeAttackResult(result);
+      setSanitizeDemo({ status: "done", input, result });
+    } catch {
+      setSanitizeDemo({
+        status: "error",
+        input,
+        message: "We couldn't reach the server. Please check your connection and try again.",
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Start fresh — discards the server-side session cookie (the real source
   // of truth for the secret key) via DELETE /api/session, clears every
   // vellar.* localStorage key, then resets this page's in-memory React
@@ -901,6 +1260,9 @@ export default function Home() {
     setCatalog({ status: "idle" });
     setPay({ status: "idle" });
     setOwnership({ status: "idle" });
+    setPaymentAttacks({ status: "idle" });
+    setCatalogAttacks({ status: "idle" });
+    setSanitizeDemo({ status: "idle", input: "" });
     setCopied(false);
     fetchedForWallet.current = false;
   }
@@ -989,6 +1351,28 @@ export default function Home() {
 
       {/* ---- Station 2's own "Run this on your machine" footer ---- */}
       {wallet.status === "ready" && <RunVerifyOnYourMachine />}
+
+      {/* ---- Station 3: the attack bench ----
+          PLACEMENT DECISION: below Station 2, same reasoning — the natural
+          next teaching moment once a visitor has seen the facilitator
+          accept a real payment and confirm a real binding. Gated on
+          `wallet.status === "ready"` since the payment-attack track needs a
+          funded session wallet to arm the bench (same precondition as
+          Station 1); the catalog-attack track needs no session at all but
+          is kept in the same gated section for a consistent narrative
+          flow. */}
+      {wallet.status === "ready" && (
+        <AttackBenchSection
+          paymentAttacks={paymentAttacks}
+          catalogAttacks={catalogAttacks}
+          sanitizeDemo={sanitizeDemo}
+          paymentElapsed={paymentAttacksElapsed}
+          catalogElapsed={catalogAttacksElapsed}
+          onRunPaymentAttacks={runPaymentAttacks}
+          onRunCatalogAttacks={runCatalogAttacks}
+          onRunSanitizeDemo={runSanitizeDemo}
+        />
+      )}
     </>
   );
 }
@@ -1915,6 +2299,485 @@ function RunVerifyOnYourMachine() {
           </button>
         </div>
         <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--lp-mono)", fontSize: "0.8125rem", margin: 0, color: "var(--lp-on-dark)" }}>{curlSnippet}</pre>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Station 3 — the attack bench
+// ---------------------------------------------------------------------------
+//
+// Reuses the SAME .lp-step-row/.lp-step-mark pattern as Stations 1/2, but
+// repurposed for pass/fail rather than progress: mint ("done") = refused for
+// the right reason / passed; coral ("error") = unexpected result / failed;
+// sun ("active") = in flight — exactly the mapping specified for this
+// station. Also reuses .lp-trace-panel/MonoRow/MonoRows for raw response
+// display and the .lp-fitem-derived <details> disclosure for raw wire bytes,
+// same as every prior station.
+//
+// HONESTY IN THE UI COPY (non-negotiable, per the task): each attack's own
+// description states plainly whether it is a live round-trip against the
+// real hosted facilitator, or an honest illustration/replica — see each
+// attack's `liveNote` below.
+
+const ATTACK_LIVE_NOTES: Record<string, string> = {
+  tamper_amount: "Live — a real, deliberately-corrupted payload submitted to the real hosted facilitator's /verify.",
+  redirect_payto: "Live — a real, deliberately-corrupted payload submitted to the real hosted facilitator's /verify.",
+  strip_signature: "Live — a real, deliberately-corrupted payload submitted to the real hosted facilitator's /verify.",
+  wrong_network: "Live — the real armed payload's network claim submitted to the real hosted facilitator's /verify.",
+  replay:
+    "Live — a real settlement, then the exact same payload replayed against the real hosted facilitator's /settle (the one attack in this track that needs /settle, not /verify — see the report for why).",
+  ssrf_linklocal:
+    "Live data, illustrative framing — real /health and /discovery/resources reads from the real hosted facilitator, showing ALREADY-cataloged localhost entries that are structurally unverifiable for the same isBlockedAddress guard family a 169.254.169.254 metadata-IP attempt would hit. Not a live attempt to reach cloud metadata infrastructure — that would be the exact SSRF this control exists to prevent.",
+  displace_verified:
+    "Live data, illustrative framing — two real, time-separated /discovery/resources polls of the demo resource, showing its verified binding is unchanged. Not a live attacker attempt (not cleanly constructible against shared infrastructure without a second seller identity — see the report) — this demonstrates the same permanence property by observing it hold under real, ongoing legitimate use.",
+};
+
+const SANITIZE_LIVE_NOTE =
+  "Not a live round-trip. This runs a faithful local port of the facilitator's real sanitizeDescription() (vellar-facilitator/src/catalog.ts) against whatever you type below — live, in this process, with no network call to the facilitator at all. Cataloging a new resource with a crafted description isn't triggerable from this playground without controlling an independent seller identity.";
+
+function attackRowState(entry: AttackBenchEntry): "pending" | "active" | "done" | "error" {
+  if (entry.status === "pending") return "pending";
+  if (entry.status === "active") return "active";
+  if (entry.status === "error") return "error";
+  // status === "done": map passed/failed onto the mint/coral convention
+  // specified for this station — "done" (mint) only when the attack was
+  // genuinely refused for the right reason; a "done" stream event whose
+  // result.passed is false is an UNEXPECTED result and reads as coral.
+  return entry.result?.passed ? "done" : "error";
+}
+
+function attackRowNote(entry: AttackBenchEntry): string {
+  if (entry.status === "pending") return "Waiting";
+  if (entry.status === "active") return "In progress";
+  if (entry.status === "error") return entry.message ?? "Failed to run";
+  if (!entry.result) return "Done";
+  if (entry.result.checkMethod === "http_status") {
+    return entry.result.passed
+      ? `Refused as expected — HTTP ${entry.result.httpStatus}`
+      : `Unexpected — HTTP ${entry.result.httpStatus}`;
+  }
+  if (entry.result.checkMethod === "poll_diff") {
+    return entry.result.passed ? "Confirmed" : "Unexpected result";
+  }
+  return entry.result.passed
+    ? `Refused as expected — ${entry.result.reasonCode ?? "no reason code"}`
+    : `Unexpected — ${entry.result.reasonCode ?? "no reason code"}`;
+}
+
+/** Raw-wire-bytes disclosure for one attack's result — same "render nothing
+ *  until there's something real to show" rule as every prior station's raw
+ *  bytes panel. */
+function AttackRawBytes({ entry }: { entry: AttackBenchEntry }) {
+  if (entry.status !== "done" && entry.status !== "error") return null;
+  if (entry.status === "error") {
+    return (
+      <details className="lp-fitem lp-fitem--raw">
+        <summary>
+          <span>Raw wire bytes</span>
+          <span className="pm" aria-hidden>
+            +
+          </span>
+        </summary>
+        <div className="body">
+          <MonoRows>
+            <MonoRow label="error" value={entry.message ?? "failed"} />
+          </MonoRows>
+        </div>
+      </details>
+    );
+  }
+  const result = entry.result;
+  if (!result) return null;
+  const rows: Array<{ label: string; value: string }> = [
+    { label: "endpoint", value: result.endpoint },
+    { label: "checkMethod", value: result.checkMethod },
+  ];
+  if (result.httpStatus !== undefined) rows.push({ label: "httpStatus", value: String(result.httpStatus) });
+  if (result.reasonCode) rows.push({ label: "reasonCode", value: result.reasonCode });
+  if (result.expectedCodes.length > 0) rows.push({ label: "expectedCodes", value: result.expectedCodes.join(", ") });
+  rows.push({ label: "rawResponse", value: truncateMiddle(JSON.stringify(result.rawResponse ?? {}), 60, 20) });
+
+  return (
+    <details className="lp-fitem lp-fitem--raw">
+      <summary>
+        <span>Raw wire bytes</span>
+        <span className="pm" aria-hidden>
+          +
+        </span>
+      </summary>
+      <div className="body">
+        <MonoRows>
+          {rows.map((r, i) => (
+            <MonoRow key={`${r.label}-${i}`} label={r.label} value={r.value} />
+          ))}
+        </MonoRows>
+      </div>
+    </details>
+  );
+}
+
+/** "Run this on your machine" footer for one attack — reuses
+ *  RunOnYourMachine's established tone: honest that the payment-track
+ *  snippets are illustrative/templated (they need a signed payload the
+ *  developer would have to construct themselves), same PAYER_SECRET
+ *  placeholder convention. */
+function AttackRunOnYourMachine({ attackId, snippet }: { attackId: string; snippet: string }) {
+  const [copiedSnippet, setCopiedSnippet] = useState(false);
+  return (
+    <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-3)" }}>
+      <div className="head">
+        <span>{attackId} — curl</span>
+        <button
+          type="button"
+          onClick={async () => {
+            await copyToClipboard(snippet);
+            setCopiedSnippet(true);
+            setTimeout(() => setCopiedSnippet(false), 1500);
+          }}
+          style={{ background: "none", border: 0, padding: 0, font: "inherit", color: "inherit", cursor: "pointer", textDecoration: "underline" }}
+        >
+          {copiedSnippet ? "Copied!" : "Copy"}
+        </button>
+      </div>
+      <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--lp-mono)", fontSize: "0.75rem", margin: 0, color: "var(--lp-on-dark)" }}>{snippet}</pre>
+    </div>
+  );
+}
+
+function paymentAttackSnippet(attackId: PaymentAttackId): string {
+  const common = [
+    "# Illustrative — requires a real signed x402 Stellar payment payload you",
+    "# construct yourself (this playground's session key stays server-side and",
+    "# is never sent to the browser — same discipline as Station 1's snippet).",
+    "PAYER_SECRET=<your own testnet secret key here> \\",
+  ];
+  const byAttack: Record<PaymentAttackId, string[]> = {
+    tamper_amount: [
+      "# 1. Build a real payment payload with buyer-classic.mjs, decode the XDR,",
+      "#    change the transfer() call's `amount` arg, re-serialize (do not re-sign).",
+      "# 2. Submit the corrupted payload:",
+      `curl -X POST ${FACILITATOR_URL}/verify \\`,
+      '  -H "content-type: application/json" \\',
+      "  -d '{\"paymentPayload\": <corrupted>, \"paymentRequirements\": <original>}'",
+      "",
+      "# Expect: {\"isValid\":false,\"invalidReason\":\"invalid_exact_stellar_payload_wrong_amount\"}",
+    ],
+    redirect_payto: [
+      "# Same mechanism as tamper_amount, but change the `to` arg instead.",
+      `curl -X POST ${FACILITATOR_URL}/verify \\`,
+      '  -H "content-type: application/json" \\',
+      "  -d '{\"paymentPayload\": <corrupted>, \"paymentRequirements\": <original>}'",
+      "",
+      "# Expect: {\"isValid\":false,\"invalidReason\":\"invalid_exact_stellar_payload_wrong_recipient\"}",
+    ],
+    strip_signature: [
+      "# Same mechanism, but set the invokeHostFunction operation's `auth` to [].",
+      `curl -X POST ${FACILITATOR_URL}/verify \\`,
+      '  -H "content-type: application/json" \\',
+      "  -d '{\"paymentPayload\": <corrupted>, \"paymentRequirements\": <original>}'",
+      "",
+      "# Expect: {\"isValid\":false,\"invalidReason\":\"invalid_exact_stellar_payload_no_auth_entries\"}",
+    ],
+    wrong_network: [
+      "# Change paymentRequirements.network to an unregistered CAIP-2 id.",
+      `curl -i -X POST ${FACILITATOR_URL}/verify \\`,
+      '  -H "content-type: application/json" \\',
+      '  -d \'{"paymentPayload": <armed, unmodified>, "paymentRequirements": {..., "network": "eip155:1"}}\'',
+      "",
+      '# Expect: HTTP 500, {"statusCode":500,"error":"Internal Server Error",',
+      '#   "message":"No facilitator registered for scheme: exact and network: eip155:1"}',
+    ],
+    replay: [
+      "# Submit the SAME already-armed payload to /settle TWICE.",
+      `curl -X POST ${FACILITATOR_URL}/settle \\`,
+      '  -H "content-type: application/json" \\',
+      "  -d '{\"paymentPayload\": <armed>, \"paymentRequirements\": <original>}'",
+      "# (run the exact same command again)",
+      "",
+      "# Expect: first call succeeds (success:true, a real settlementTx); the",
+      "# second fails, commonly with errorReason",
+      '# "invalid_exact_stellar_payload_simulation_failed" (observed live) — the',
+      "# on-chain nonce the first call consumed is what refuses the second.",
+    ],
+  };
+  return [...common, ...byAttack[attackId]].join("\n");
+}
+
+function catalogAttackSnippet(attackId: CatalogAttackId): string {
+  if (attackId === "ssrf_linklocal") {
+    return [
+      `curl ${FACILITATOR_URL}/health`,
+      `curl ${FACILITATOR_URL}/discovery/resources`,
+      "",
+      "# Look for unverifiableEntries on /health, and for resources like",
+      '# "http://localhost:<port>/quote" in /discovery/resources whose',
+      '# trust.ownershipState stays "unverified" permanently — the same',
+      "# isBlockedAddress guard family that blocks 169.254.169.254 also blocks",
+      "# these (non-https and/or the literal `localhost` hostname).",
+    ].join("\n");
+  }
+  return [
+    `curl ${FACILITATOR_URL}/discovery/resources | jq '.items[] | select(.resource == "${SELLER_URL}/quote")'`,
+    "# (wait a few seconds, run again)",
+    `curl ${FACILITATOR_URL}/discovery/resources | jq '.items[] | select(.resource == "${SELLER_URL}/quote")'`,
+    "",
+    "# Expect: accepts[].payTo and trust.ownershipState identical across both",
+    "# calls — the verified binding does not move, even under real ongoing use.",
+  ].join("\n");
+}
+
+function AttackBenchSection({
+  paymentAttacks,
+  catalogAttacks,
+  sanitizeDemo,
+  paymentElapsed,
+  catalogElapsed,
+  onRunPaymentAttacks,
+  onRunCatalogAttacks,
+  onRunSanitizeDemo,
+}: {
+  paymentAttacks: PaymentAttackStage;
+  catalogAttacks: CatalogAttackStage;
+  sanitizeDemo: SanitizeDemoState;
+  paymentElapsed: number;
+  catalogElapsed: number;
+  onRunPaymentAttacks: () => void;
+  onRunCatalogAttacks: () => void;
+  onRunSanitizeDemo: (input: string) => void;
+}) {
+  const [sanitizeInput, setSanitizeInput] = useState("");
+
+  const paymentMap =
+    paymentAttacks.status === "running" || paymentAttacks.status === "done" || paymentAttacks.status === "error"
+      ? paymentAttacks.attacks
+      : initialPaymentAttackMap();
+  const catalogMap =
+    catalogAttacks.status === "running" || catalogAttacks.status === "done" || catalogAttacks.status === "error"
+      ? catalogAttacks.attacks
+      : initialCatalogAttackMap();
+
+  return (
+    <div style={{ marginTop: "var(--lp-sp-8)" }}>
+      <Eyebrow>Station 3 — the attack bench</Eyebrow>
+      <h2 style={{ marginTop: "var(--lp-sp-4)" }}>
+        Break it. <em>Watch it refuse to break.</em>
+      </h2>
+      <p className="lp-lead" style={{ marginTop: "var(--lp-sp-3)" }}>
+        Eight deliberate attacks against the real hosted facilitator — five corrupt a real signed payment, three
+        target the public catalog. Mint means the facilitator refused for the right reason (a pass for the
+        defense); coral means something unexpected happened. Every attack&apos;s panel says plainly whether it is a
+        live round-trip or an honest illustration — see each one below.
+      </p>
+
+      {/* ---- Payment-attack track ---- */}
+      <div className="lp-dpanel lp-dpanel--dark" style={{ marginTop: "var(--lp-sp-6)" }}>
+        <div className="lp-dpanel-head">
+          <h3>Payment attacks</h3>
+        </div>
+        <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
+          Arms one real, validly-signed payment using your session wallet, then takes a fresh copy per attack and
+          corrupts it — tampered amount, redirected recipient, stripped signature, an unregistered network claim,
+          and a replayed settlement. Four hit <code>/verify</code>; replay hits <code>/settle</code> (the only way
+          to observe nonce consumption — see the panel below).
+        </p>
+
+        {paymentAttacks.status === "idle" && (
+          <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-4)" }}>
+            <LpActionButton variant="sun" onClick={onRunPaymentAttacks}>
+              Arm the bench and attack →
+            </LpActionButton>
+          </div>
+        )}
+
+        {paymentAttacks.status !== "idle" && (
+          <>
+            <div className="lp-steps-card" style={{ marginTop: "var(--lp-sp-4)" }}>
+              {PAYMENT_ATTACK_IDS.map((attackId) => {
+                const entry = paymentMap[attackId];
+                return (
+                  <div key={attackId}>
+                    <div className="lp-step-row" data-state={attackRowState(entry)}>
+                      <span className="lp-step-mark" aria-hidden />
+                      <span className="lp-step-label">{PAYMENT_ATTACK_LABELS[attackId]}</span>
+                      <span className="lp-step-note">{attackRowNote(entry)}</span>
+                    </div>
+                    <p className="lp-lead" style={{ fontSize: "0.7rem", marginTop: "2px", marginBottom: "4px" }}>
+                      {ATTACK_LIVE_NOTES[attackId]}
+                    </p>
+                    <AttackRawBytes entry={entry} />
+                    <AttackRunOnYourMachine attackId={attackId} snippet={paymentAttackSnippet(attackId)} />
+                  </div>
+                );
+              })}
+            </div>
+
+            {paymentAttacks.status === "running" && (
+              <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.85rem" }}>
+                Arming and attacking... ({paymentElapsed}s)
+              </p>
+            )}
+            {paymentAttacks.status === "error" && (
+              <div style={{ marginTop: "var(--lp-sp-4)" }}>
+                <p className="lp-lead">{paymentAttacks.message}</p>
+                <div className="lp-cta-row">
+                  <LpActionButton variant="ghost" size="sm" onClick={onRunPaymentAttacks}>
+                    Try again
+                  </LpActionButton>
+                </div>
+              </div>
+            )}
+            {paymentAttacks.status === "done" && (
+              <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-4)" }}>
+                <LpActionButton variant="ghost" size="sm" onClick={onRunPaymentAttacks}>
+                  Run again
+                </LpActionButton>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ---- Catalog-attack track ---- */}
+      <div className="lp-dpanel" style={{ marginTop: "var(--lp-sp-6)" }}>
+        <div className="lp-dpanel-head">
+          <h3>Catalog attacks</h3>
+        </div>
+        <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
+          No session needed — both poll the facilitator&apos;s public <code>/health</code> and{" "}
+          <code>/discovery/resources</code>.
+        </p>
+
+        {catalogAttacks.status === "idle" && (
+          <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-4)" }}>
+            <LpActionButton variant="sun" onClick={onRunCatalogAttacks}>
+              Run the catalog checks →
+            </LpActionButton>
+          </div>
+        )}
+
+        {catalogAttacks.status !== "idle" && (
+          <>
+            <div className="lp-steps-card" style={{ marginTop: "var(--lp-sp-4)" }}>
+              {CATALOG_ATTACK_IDS.map((attackId) => {
+                const entry = catalogMap[attackId];
+                return (
+                  <div key={attackId}>
+                    <div className="lp-step-row" data-state={attackRowState(entry)}>
+                      <span className="lp-step-mark" aria-hidden />
+                      <span className="lp-step-label">{CATALOG_ATTACK_LABELS[attackId]}</span>
+                      <span className="lp-step-note">{attackRowNote(entry)}</span>
+                    </div>
+                    <p className="lp-lead" style={{ fontSize: "0.7rem", marginTop: "2px", marginBottom: "4px" }}>
+                      {ATTACK_LIVE_NOTES[attackId]}
+                    </p>
+                    <AttackRawBytes entry={entry} />
+                    <AttackRunOnYourMachine attackId={attackId} snippet={catalogAttackSnippet(attackId)} />
+                  </div>
+                );
+              })}
+            </div>
+
+            {catalogAttacks.status === "running" && (
+              <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.85rem" }}>
+                Polling... ({catalogElapsed}s)
+              </p>
+            )}
+            {catalogAttacks.status === "error" && (
+              <div style={{ marginTop: "var(--lp-sp-4)" }}>
+                <p className="lp-lead">{catalogAttacks.message}</p>
+                <div className="lp-cta-row">
+                  <LpActionButton variant="ghost" size="sm" onClick={onRunCatalogAttacks}>
+                    Try again
+                  </LpActionButton>
+                </div>
+              </div>
+            )}
+            {catalogAttacks.status === "done" && (
+              <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-4)" }}>
+                <LpActionButton variant="ghost" size="sm" onClick={onRunCatalogAttacks}>
+                  Run again
+                </LpActionButton>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ---- Sanitizer demo (attack 8) ---- */}
+      <div className="lp-dpanel lp-dpanel--dark" style={{ marginTop: "var(--lp-sp-6)" }}>
+        <div className="lp-dpanel-head">
+          <h3>Prompt injection via a crafted description</h3>
+        </div>
+        <p className="lp-lead" style={{ fontSize: "0.85rem", fontWeight: 700 }}>
+          {SANITIZE_LIVE_NOTE}
+        </p>
+        <label htmlFor="sanitize-input" className="lp-lead" style={{ fontSize: "0.8rem", display: "block", marginTop: "var(--lp-sp-4)" }}>
+          Type an injection attempt (try control characters, an RTL override, or a very long string):
+        </label>
+        <textarea
+          id="sanitize-input"
+          value={sanitizeInput}
+          onChange={(e) => setSanitizeInput(e.target.value)}
+          rows={3}
+          style={{
+            width: "100%",
+            marginTop: "var(--lp-sp-2)",
+            fontFamily: "var(--lp-mono)",
+            fontSize: "0.8125rem",
+            padding: "var(--lp-sp-3)",
+            background: "var(--lp-paper-tint)",
+            border: "1px solid var(--lp-line)",
+            color: "inherit",
+          }}
+        />
+        <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-3)" }}>
+          <LpActionButton
+            variant="sun"
+            size="sm"
+            onClick={() => onRunSanitizeDemo(sanitizeInput)}
+            disabled={sanitizeDemo.status === "loading"}
+          >
+            Sanitize it →
+          </LpActionButton>
+        </div>
+
+        {sanitizeDemo.status === "error" && (
+          <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)" }}>
+            {sanitizeDemo.message}
+          </p>
+        )}
+
+        {sanitizeDemo.status === "done" && sanitizeDemo.result && (
+          <div style={{ marginTop: "var(--lp-sp-4)" }}>
+            <div className="lp-step-row" data-state={sanitizeDemo.result.passed ? "done" : "skipped"}>
+              <span className="lp-step-mark" aria-hidden />
+              <span className="lp-step-label">
+                {sanitizeDemo.result.passed ? "The sanitizer changed the input" : "Nothing to strip — input was already clean"}
+              </span>
+            </div>
+            <MonoRows>
+              <MonoRow label="input length" value={String((sanitizeDemo.result.rawResponse as { inputLength?: number })?.inputLength ?? "—")} />
+              <MonoRow
+                label="sanitized length"
+                value={String((sanitizeDemo.result.rawResponse as { sanitizedLength?: number })?.sanitizedLength ?? "—")}
+              />
+              <MonoRow
+                label="stripped chars"
+                value={String((sanitizeDemo.result.rawResponse as { strippedCharCount?: number })?.strippedCharCount ?? "—")}
+              />
+              <MonoRow
+                label="truncated to 256"
+                value={String((sanitizeDemo.result.rawResponse as { truncated?: boolean })?.truncated ?? "—")}
+              />
+              <MonoRow
+                label="sanitized output"
+                value={truncateMiddle(String((sanitizeDemo.result.rawResponse as { sanitized?: string })?.sanitized ?? ""), 40, 10)}
+              />
+            </MonoRows>
+          </div>
+        )}
       </div>
     </div>
   );

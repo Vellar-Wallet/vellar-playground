@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAll,
+  readAttackResults,
   readLastCatalogSearch,
   readLastPayment,
   readQuestProgress,
   readSession,
+  writeAttackResult,
   writeLastCatalogSearch,
   writeLastPayment,
-  writeQuestProgress,
+  writeQuestLevel,
   writeSession,
+  type StoredAttackResult,
   type StoredLastPayment,
   type StoredSession,
 } from "./local-storage";
@@ -93,16 +96,68 @@ describe("lib/local-storage: namespacing + round-trip", () => {
     expect(readLastCatalogSearch()).toEqual({ query: "quote", results: [{ resource: "https://example.com/quote" }] });
   });
 
-  it("writeQuestProgress/readQuestProgress accumulates keyed by station, under vellar.questProgress", () => {
-    writeQuestProgress("station-1", true);
-    expect(readQuestProgress()).toEqual({ "station-1": true });
-
-    writeQuestProgress("station-2", { proof: { ownerVerifiedAt: 1 } });
+  it("writeQuestLevel/readQuestProgress accumulates keyed by level number, under vellar.questProgress", () => {
+    writeQuestLevel(1, { completedAt: 1000, proof: "abc123settlementtx", verified: true });
     expect(readQuestProgress()).toEqual({
-      "station-1": true,
-      "station-2": { proof: { ownerVerifiedAt: 1 } },
+      1: { level: 1, completedAt: 1000, proof: "abc123settlementtx", verified: true },
+    });
+
+    writeQuestLevel(2, { completedAt: 2000, proof: "Confirmed — already verified.", verified: true });
+    expect(readQuestProgress()).toEqual({
+      1: { level: 1, completedAt: 1000, proof: "abc123settlementtx", verified: true },
+      2: { level: 2, completedAt: 2000, proof: "Confirmed — already verified.", verified: true },
     });
     expect(fakeStorage.getItem("vellar.questProgress")).toBeTruthy();
+  });
+
+  it("writeQuestLevel overwrites an existing level's record rather than duplicating it", () => {
+    writeQuestLevel(1, { completedAt: 1000, proof: "first-tx", verified: true });
+    writeQuestLevel(1, { completedAt: 2000, proof: "second-tx", verified: true });
+    expect(readQuestProgress()).toEqual({
+      1: { level: 1, completedAt: 2000, proof: "second-tx", verified: true },
+    });
+  });
+
+  it("writeAttackResult/readAttackResults round-trips under the vellar.attackResults key, keyed by attackId", () => {
+    const result: StoredAttackResult = {
+      attackId: "tamper_amount",
+      endpoint: "/verify",
+      attemptedAt: 5000,
+      checkMethod: "reason_code",
+      httpStatus: 200,
+      reasonCode: "invalid_exact_stellar_payload_wrong_amount",
+      expectedCodes: ["invalid_exact_stellar_payload_wrong_amount"],
+      passed: true,
+      rawResponse: { isValid: false, invalidReason: "invalid_exact_stellar_payload_wrong_amount" },
+    };
+    writeAttackResult(result);
+    expect(readAttackResults()).toEqual({ tamper_amount: result });
+    expect(fakeStorage.getItem("vellar.attackResults")).toBeTruthy();
+  });
+
+  it("writeAttackResult accumulates multiple attacks keyed by their own attackId", () => {
+    const a: StoredAttackResult = {
+      attackId: "tamper_amount",
+      endpoint: "/verify",
+      attemptedAt: 1,
+      checkMethod: "reason_code",
+      expectedCodes: ["invalid_exact_stellar_payload_wrong_amount"],
+      passed: true,
+      rawResponse: {},
+    };
+    const b: StoredAttackResult = {
+      attackId: "wrong_network",
+      endpoint: "/verify",
+      attemptedAt: 2,
+      checkMethod: "http_status",
+      httpStatus: 500,
+      expectedCodes: [],
+      passed: true,
+      rawResponse: {},
+    };
+    writeAttackResult(a);
+    writeAttackResult(b);
+    expect(readAttackResults()).toEqual({ tamper_amount: a, wrong_network: b });
   });
 });
 
@@ -192,14 +247,23 @@ describe("lib/local-storage: secret key never reaches the raw stored bytes", () 
 });
 
 describe("lib/local-storage: clearAll()", () => {
-  it("removes exactly the 4 namespaced keys and leaves a non-vellar key untouched", () => {
+  it("removes exactly the 5 namespaced keys and leaves a non-vellar key untouched", () => {
     writeSession({ publicKey: "G1", balanceXlm: "1" });
     writeLastPayment({ settlementTx: "tx1", paymentPayload: {}, sellerUrl: "https://x", amount: "1", timestamp: 1 });
     writeLastCatalogSearch({ query: "q", results: [] });
-    writeQuestProgress("station-1", true);
+    writeQuestLevel(1, { completedAt: 1, proof: "tx1", verified: true });
+    writeAttackResult({
+      attackId: "tamper_amount",
+      endpoint: "/verify",
+      attemptedAt: 1,
+      checkMethod: "reason_code",
+      expectedCodes: ["invalid_exact_stellar_payload_wrong_amount"],
+      passed: true,
+      rawResponse: {},
+    });
     fakeStorage.setItem("some.other.app.key", "should-survive");
 
-    expect(fakeStorage.length).toBe(5);
+    expect(fakeStorage.length).toBe(6);
 
     clearAll();
 
@@ -207,12 +271,13 @@ describe("lib/local-storage: clearAll()", () => {
     expect(fakeStorage.getItem("vellar.lastPayment")).toBeNull();
     expect(fakeStorage.getItem("vellar.lastCatalogSearch")).toBeNull();
     expect(fakeStorage.getItem("vellar.questProgress")).toBeNull();
+    expect(fakeStorage.getItem("vellar.attackResults")).toBeNull();
     // Proves clearAll() is NOT calling localStorage.clear() wholesale.
     expect(fakeStorage.getItem("some.other.app.key")).toBe("should-survive");
     expect(fakeStorage.length).toBe(1);
   });
 
-  it("is a no-op (doesn't throw) when none of the 4 keys are present", () => {
+  it("is a no-op (doesn't throw) when none of the 5 keys are present", () => {
     fakeStorage.setItem("unrelated", "1");
     expect(() => clearAll()).not.toThrow();
     expect(fakeStorage.getItem("unrelated")).toBe("1");
@@ -225,6 +290,7 @@ describe("lib/local-storage: graceful absence + corruption handling", () => {
     expect(readLastPayment()).toBeNull();
     expect(readLastCatalogSearch()).toBeNull();
     expect(readQuestProgress()).toEqual({});
+    expect(readAttackResults()).toEqual({});
   });
 
   it("readSession does not throw and returns null on corrupted/unparseable JSON", () => {
@@ -251,6 +317,12 @@ describe("lib/local-storage: graceful absence + corruption handling", () => {
     expect(readQuestProgress()).toEqual({});
   });
 
+  it("readAttackResults does not throw and returns {} on corrupted/unparseable JSON", () => {
+    fakeStorage.setItem("vellar.attackResults", "]not json[");
+    expect(() => readAttackResults()).not.toThrow();
+    expect(readAttackResults()).toEqual({});
+  });
+
   it("write* functions never throw even if the underlying storage.setItem throws (quota exceeded, disabled storage)", () => {
     const throwingStorage: Storage = {
       ...fakeStorage,
@@ -272,7 +344,18 @@ describe("lib/local-storage: graceful absence + corruption handling", () => {
       writeLastPayment({ settlementTx: "t", paymentPayload: {}, sellerUrl: "https://x", amount: "1", timestamp: 1 }),
     ).not.toThrow();
     expect(() => writeLastCatalogSearch({ query: "q", results: [] })).not.toThrow();
-    expect(() => writeQuestProgress("station-1", true)).not.toThrow();
+    expect(() => writeQuestLevel(1, { completedAt: 1, proof: "tx1", verified: true })).not.toThrow();
+    expect(() =>
+      writeAttackResult({
+        attackId: "tamper_amount",
+        endpoint: "/verify",
+        attemptedAt: 1,
+        checkMethod: "reason_code",
+        expectedCodes: ["invalid_exact_stellar_payload_wrong_amount"],
+        passed: true,
+        rawResponse: {},
+      }),
+    ).not.toThrow();
   });
 
   it("read* functions never throw even if the underlying storage.getItem throws", () => {
