@@ -1333,26 +1333,32 @@ export default function Home() {
             />
           </div>
 
-          {/* ---- Catalog panel ---- */}
-          {wallet.status === "ready" && (
-            <div className="lp-dpanel lp-dpanel--lime">
-              <CatalogSection
-                catalog={catalog}
-                elapsed={catalogElapsed}
-                onRetry={loadCatalog}
-                onPay={payForResource}
-                payBusy={pay.status === "paying"}
-              />
-            </div>
-          )}
-
           {/* ---- Payment ledger panel (the cinematic moment) ---- */}
           {wallet.status === "ready" && pay.status !== "idle" && (
-            <div className="lp-dpanel lp-dpanel--dark lp-dpanel--span2">
+            <div className="lp-dpanel lp-dpanel--dark">
               <PayLedger pay={pay} elapsed={payElapsed} onRetry={() => payForResource(pay.resourceUrl)} />
             </div>
           )}
         </div>
+
+        {/* ---- Catalog section — its OWN full-width block below the wallet
+            row, not squeezed into a column alongside it. The grid needs
+            real width to ever show more than one card per row; nested
+            inside the wallet/ledger two-column split, it never had room to
+            be more than a single stacked column no matter how the CSS
+            grid was written. Full-width and un-nested is what actually
+            lets .lp-dgrid's auto-fit columns do their job. */}
+        {wallet.status === "ready" && (
+          <div className="lp-dpanel lp-dpanel--lime" style={{ marginTop: "var(--lp-sp-6)" }}>
+            <CatalogSection
+              catalog={catalog}
+              elapsed={catalogElapsed}
+              onRetry={loadCatalog}
+              onPay={payForResource}
+              payBusy={pay.status === "paying"}
+            />
+          </div>
+        )}
 
         {/* ---- Who is involved ---- */}
         {wallet.status === "ready" && pay.status !== "idle" && (
@@ -1571,6 +1577,11 @@ function trustLabel(trust?: CatalogItem["trust"]): { text: string; verified: boo
 // accent whichever page you see it on.
 const CATALOG_TINTS = ["mint", "sun", "lime", "coral"] as const;
 
+// Initial visible card count before "See more" — keeps the section from
+// growing unbounded with the live catalog (11 real entries today, more as
+// new resources get cataloged).
+const CATALOG_VISIBLE_COUNT = 9;
+
 function CatalogSection({
   catalog,
   elapsed,
@@ -1584,6 +1595,11 @@ function CatalogSection({
   onPay: (resourceUrl: string) => void;
   payBusy: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const allItems = catalog.status === "ready" ? catalog.items : [];
+  const visibleItems = expanded ? allItems : allItems.slice(0, CATALOG_VISIBLE_COUNT);
+  const hiddenCount = allItems.length - visibleItems.length;
+
   return (
     <>
       <div className="lp-dpanel-head">
@@ -1611,70 +1627,88 @@ function CatalogSection({
         </div>
       )}
 
-      {catalog.status === "ready" && catalog.items.length === 0 && (
+      {catalog.status === "ready" && allItems.length === 0 && (
         <p className="lp-lead">No resources are cataloged yet.</p>
       )}
 
-      {/* Grid, not a stacked row list — the same .lp-dgrid/.lp-dpanel card
-          pattern /catalog itself uses, so this panel reads as a contained
-          dashboard section (bounded cards, scannable) rather than one
-          ever-growing block of rows. Every resource's Pay button is real —
-          POST /api/pay already accepts an arbitrary resourceUrl (confirmed
-          when /catalog got the same capability), so the earlier
-          single-demo-resource restriction here was stale, not a still-true
-          constraint. A click routes into the SAME payForResource/PayLedger
-          state machine every other Pay affordance on this page already
-          uses — this section doesn't own its own pay/result state, unlike
-          /catalog's per-card CardPayArea, since a wallet is guaranteed to
-          already exist here (CatalogSection only renders once
-          wallet.status === "ready") and the six-step ledger below is
-          exactly this page's own deep-dive result view. */}
-      {catalog.status === "ready" && catalog.items.length > 0 && (
-        <div className="lp-dgrid" style={{ marginTop: "var(--lp-sp-4)" }}>
-          {catalog.items.map((item, index) => {
-            const accept = item.accepts?.[0];
-            const trust = trustLabel(item.trust);
-            const tint = CATALOG_TINTS[index % CATALOG_TINTS.length];
-            return (
-              <div className={`lp-dpanel lp-dpanel--${tint}`} key={item.resource}>
-                <div>
-                  <b style={{ fontSize: "0.95rem" }}>{item.description || item.resource}</b>
-                  <p className="lp-lead" style={{ fontSize: "0.8rem", marginTop: "var(--lp-sp-2)" }}>
-                    {formatAtomicAmount(accept?.amount)} atomic of {truncateMiddle(accept?.asset || "—")}
-                  </p>
-                  <p className="lp-lead" style={{ fontSize: "0.75rem", marginTop: "var(--lp-sp-1)" }}>
-                    {truncateMiddle(item.resource, 32, 12)}
-                  </p>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "var(--lp-sp-3)",
-                    marginTop: "var(--lp-sp-3)",
-                  }}
-                >
-                  <span
-                    className="lp-verified"
-                    style={!trust.verified ? { background: "var(--lp-paper-tint)" } : undefined}
+      {/* A genuine responsive multi-column grid — .lp-dgrid's auto-fit
+          columns only actually produce multiple columns when the
+          container has real width to give them; nested inside the
+          wallet/ledger two-column row (the previous layout), this panel
+          never had more than ~one column's worth of space no matter what
+          the grid CSS said, so it rendered as a single stacked column
+          regardless. It's now its own full-width section (see the call
+          site) specifically so auto-fit has room to do its job. Capped to
+          CATALOG_VISIBLE_COUNT with a See more/less toggle so the section
+          stays a bounded dashboard panel rather than growing without limit
+          as the live catalog gains more entries. Every card's Pay button
+          is real — POST /api/pay already accepts an arbitrary resourceUrl
+          (confirmed when /catalog got the same capability), so the
+          earlier single-demo-resource restriction here was stale, not a
+          still-true constraint. A click routes into the SAME
+          payForResource/PayLedger state machine every other Pay
+          affordance on this page already uses — this section doesn't own
+          its own pay/result state, unlike /catalog's per-card
+          CardPayArea, since a wallet is guaranteed to already exist here
+          (CatalogSection only renders once wallet.status === "ready")
+          and the six-step ledger elsewhere on this page is exactly this
+          page's own deep-dive result view. */}
+      {catalog.status === "ready" && allItems.length > 0 && (
+        <>
+          <div className="lp-dgrid" style={{ marginTop: "var(--lp-sp-4)" }}>
+            {visibleItems.map((item, index) => {
+              const accept = item.accepts?.[0];
+              const trust = trustLabel(item.trust);
+              const tint = CATALOG_TINTS[index % CATALOG_TINTS.length];
+              return (
+                <div className={`lp-dpanel lp-dpanel--${tint}`} key={item.resource}>
+                  <div>
+                    <b style={{ fontSize: "0.95rem" }}>{item.description || item.resource}</b>
+                    <p className="lp-lead" style={{ fontSize: "0.8rem", marginTop: "var(--lp-sp-2)" }}>
+                      {formatAtomicAmount(accept?.amount)} atomic of {truncateMiddle(accept?.asset || "—")}
+                    </p>
+                    <p className="lp-lead" style={{ fontSize: "0.75rem", marginTop: "var(--lp-sp-1)" }}>
+                      {truncateMiddle(item.resource, 32, 12)}
+                    </p>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "var(--lp-sp-3)",
+                      marginTop: "var(--lp-sp-3)",
+                    }}
                   >
-                    {trust.verified ? "✓ " : ""}
-                    {trust.text}
-                  </span>
-                  <LpActionButton
-                    variant="sun"
-                    size="sm"
-                    onClick={() => onPay(item.resource)}
-                    disabled={payBusy}
-                  >
-                    Pay →
-                  </LpActionButton>
+                    <span
+                      className="lp-verified"
+                      style={!trust.verified ? { background: "var(--lp-paper-tint)" } : undefined}
+                    >
+                      {trust.verified ? "✓ " : ""}
+                      {trust.text}
+                    </span>
+                    <LpActionButton
+                      variant="sun"
+                      size="sm"
+                      onClick={() => onPay(item.resource)}
+                      disabled={payBusy}
+                    >
+                      Pay →
+                    </LpActionButton>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+
+          {allItems.length > CATALOG_VISIBLE_COUNT && (
+            <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-4)" }}>
+              <LpActionButton variant="outline" size="sm" onClick={() => setExpanded((v) => !v)}>
+                {expanded ? "See less" : `See ${hiddenCount} more →`}
+              </LpActionButton>
+            </div>
+          )}
+        </>
       )}
     </>
   );
