@@ -1567,6 +1567,10 @@ function trustLabel(trust?: CatalogItem["trust"]): { text: string; verified: boo
   return { text: "Unknown", verified: false };
 }
 
+// Same rotation /catalog's own grid uses, so a resource reads with the same
+// accent whichever page you see it on.
+const CATALOG_TINTS = ["mint", "sun", "lime", "coral"] as const;
+
 function CatalogSection({
   catalog,
   elapsed,
@@ -1611,51 +1615,67 @@ function CatalogSection({
         <p className="lp-lead">No resources are cataloged yet.</p>
       )}
 
+      {/* Grid, not a stacked row list — the same .lp-dgrid/.lp-dpanel card
+          pattern /catalog itself uses, so this panel reads as a contained
+          dashboard section (bounded cards, scannable) rather than one
+          ever-growing block of rows. Every resource's Pay button is real —
+          POST /api/pay already accepts an arbitrary resourceUrl (confirmed
+          when /catalog got the same capability), so the earlier
+          single-demo-resource restriction here was stale, not a still-true
+          constraint. A click routes into the SAME payForResource/PayLedger
+          state machine every other Pay affordance on this page already
+          uses — this section doesn't own its own pay/result state, unlike
+          /catalog's per-card CardPayArea, since a wallet is guaranteed to
+          already exist here (CatalogSection only renders once
+          wallet.status === "ready") and the six-step ledger below is
+          exactly this page's own deep-dive result view. */}
       {catalog.status === "ready" && catalog.items.length > 0 && (
-        <div className="lp-rlist">
-          {catalog.items.map((item) => {
+        <div className="lp-dgrid" style={{ marginTop: "var(--lp-sp-4)" }}>
+          {catalog.items.map((item, index) => {
             const accept = item.accepts?.[0];
             const trust = trustLabel(item.trust);
-            const isDemoResource = item.resource === DEMO_RESOURCE_URL;
+            const tint = CATALOG_TINTS[index % CATALOG_TINTS.length];
             return (
-              <div className="lp-rrow" key={item.resource}>
-                <div className="ri"></div>
-                <div className="rn">
-                  <b>{item.description || item.resource}</b>
-                  <span>
+              <div className={`lp-dpanel lp-dpanel--${tint}`} key={item.resource}>
+                <div>
+                  <b style={{ fontSize: "0.95rem" }}>{item.description || item.resource}</b>
+                  <p className="lp-lead" style={{ fontSize: "0.8rem", marginTop: "var(--lp-sp-2)" }}>
                     {formatAtomicAmount(accept?.amount)} atomic of {truncateMiddle(accept?.asset || "—")}
-                    {" · "}
-                    {truncateMiddle(item.resource, 24, 10)}
-                  </span>
+                  </p>
+                  <p className="lp-lead" style={{ fontSize: "0.75rem", marginTop: "var(--lp-sp-1)" }}>
+                    {truncateMiddle(item.resource, 32, 12)}
+                  </p>
                 </div>
-                <span className="lp-verified" style={!trust.verified ? { background: "var(--lp-paper-tint)" } : undefined}>
-                  {trust.verified ? "✓ " : ""}
-                  {trust.text}
-                </span>
-                <button
-                  type="button"
-                  className="open"
-                  style={{ border: 0, cursor: isDemoResource ? "pointer" : "not-allowed", opacity: isDemoResource ? 1 : 0.5 }}
-                  disabled={!isDemoResource || payBusy}
-                  title={isDemoResource ? "Pay this resource" : "This demo only pays the featured resource below"}
-                  onClick={() => isDemoResource && onPay(item.resource)}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "var(--lp-sp-3)",
+                    marginTop: "var(--lp-sp-3)",
+                  }}
                 >
-                  Pay
-                </button>
+                  <span
+                    className="lp-verified"
+                    style={!trust.verified ? { background: "var(--lp-paper-tint)" } : undefined}
+                  >
+                    {trust.verified ? "✓ " : ""}
+                    {trust.text}
+                  </span>
+                  <LpActionButton
+                    variant="sun"
+                    size="sm"
+                    onClick={() => onPay(item.resource)}
+                    disabled={payBusy}
+                  >
+                    Pay →
+                  </LpActionButton>
+                </div>
               </div>
             );
           })}
         </div>
       )}
-
-      {/* Scoped to the single demo seller resource for this step (see report:
-          catalog Pay buttons only work for vellar-seller-demo's /quote — other
-          catalog entries are shown but their Pay button is disabled and says why). */}
-      <div className="lp-cta-row">
-        <LpActionButton variant="sun" size="lg" onClick={() => onPay(DEMO_RESOURCE_URL)} disabled={payBusy}>
-          Pay the demo resource →
-        </LpActionButton>
-      </div>
     </>
   );
 }
