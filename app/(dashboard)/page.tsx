@@ -17,7 +17,7 @@
 // ---------------------------------------------------------------------------
 
 import Link from "next/link";
-import { Eyebrow, Field, LpActionButton, TokenPill } from "../design/ui";
+import { cx, Eyebrow, Field, LpActionButton, TokenPill } from "../design/ui";
 import { truncateMiddle } from "@/lib/format";
 import { useWallet, WALLET_STEP_ORDER, WALLET_STEP_LABELS, type WalletStepMap } from "@/lib/wallet-context";
 import { useState } from "react";
@@ -48,9 +48,20 @@ function StepProgress({ steps }: { steps: WalletStepMap }) {
   );
 }
 
+// Each group carries one .lp-dpanel tint (mint/sun/lime/coral — the same
+// four this app already uses for dark-panel accents and rotating catalog
+// cards, see catalog/page.tsx's own CARD_TINTS), not a per-card rotation —
+// a whole SECTION reading as one color is what actually makes the journey
+// map scannable ("break it" is the coral group), where rotating tints
+// card-by-card would just look like arbitrary decoration. Picked to
+// extend the meaning this session already gave these accents on dark
+// panels: mint = the real settlement path, coral = adversarial, lime =
+// reference/informational. Tools stays plain (untinted, the CSS default)
+// since it's utility, not part of the narrative arc the other four trace.
 const JOURNEY_GROUPS = [
   {
     label: "Learn the flow",
+    tint: "mint",
     items: [
       { href: "/pay", label: "First payment", description: "Pay a real API and inspect every byte on the wire." },
       { href: "/verify", label: "Ownership verification", description: "A resource's ownership binding, once proven, can't be taken back." },
@@ -58,6 +69,7 @@ const JOURNEY_GROUPS = [
   },
   {
     label: "Break it",
+    tint: "coral",
     items: [
       { href: "/break/payments", label: "Break payments", description: "Five deliberate corruptions of a real signed payment, every one refused." },
       { href: "/break/catalog", label: "Poison catalog", description: "Three poisoning attempts against the Bazaar's real catalog." },
@@ -65,10 +77,12 @@ const JOURNEY_GROUPS = [
   },
   {
     label: "Discovery",
+    tint: "lime",
     items: [{ href: "/catalog", label: "Bazaar catalog", description: "Every resource the facilitator has seen, with a real Pay button on each." }],
   },
   {
     label: "Learn",
+    tint: "sun",
     items: [
       { href: "/quest", label: "Quest", description: "A five-level challenge track through everything above." },
       { href: "/bond", label: "Bond system", description: "How Vellar closes the gap between settlement and delivery." },
@@ -76,6 +90,7 @@ const JOURNEY_GROUPS = [
   },
   {
     label: "Tools",
+    tint: undefined,
     items: [
       { href: "/status", label: "Status", description: "Live facilitator health, supported schemes, sponsor signer." },
       { href: "/console", label: "Console", description: "Every facilitator endpoint, raw." },
@@ -99,7 +114,7 @@ export default function Home() {
         </p>
       </div>
 
-      <div className="lp-dpanel" style={{ marginTop: "var(--lp-sp-6)" }}>
+      <div className="lp-dpanel lp-dpanel--mint" style={{ marginTop: "var(--lp-sp-6)" }}>
         <div className="lp-dpanel-head">
           <h2>Your wallet</h2>
         </div>
@@ -115,7 +130,11 @@ export default function Home() {
           <Eyebrow>{group.label}</Eyebrow>
           <div className="lp-dgrid" style={{ marginTop: "var(--lp-sp-4)" }}>
             {group.items.map((item) => (
-              <Link key={item.href} href={item.href} className="lp-dpanel lp-journey-card">
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cx("lp-dpanel", "lp-journey-card", group.tint && `lp-dpanel--${group.tint}`)}
+              >
                 <b style={{ fontSize: "0.95rem" }}>{item.label}</b>
                 <p className="lp-lead" style={{ fontSize: "0.8rem", marginTop: "var(--lp-sp-2)" }}>
                   {item.description}
