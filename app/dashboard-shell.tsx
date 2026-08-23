@@ -9,8 +9,8 @@ import { cx } from "./design/ui";
 // ---------------------------------------------------------------------------
 // Shared dashboard shell: a persistent left sidebar (collapsing to a top bar
 // under 900px, see landing.css's .lp-shell/.lp-sidebar/.lp-topbar rules) that
-// wraps the four routes (/, /catalog, /status, /console). Applied once via
-// app/(dashboard)/layout.tsx rather than duplicated per page.
+// wraps the six routes (/, /catalog, /status, /console, /quest, /bond).
+// Applied once via app/(dashboard)/layout.tsx rather than duplicated per page.
 //
 // Logo: vela-wallet's apps/web/public/logo-light.png, copied into this app's
 // public/ directory — see the task report for why this asset was chosen over
@@ -23,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/status", label: "Status" },
   { href: "/console", label: "Console" },
   { href: "/quest", label: "Quest" },
+  { href: "/bond", label: "Bond" },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {
