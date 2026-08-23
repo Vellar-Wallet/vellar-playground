@@ -500,30 +500,39 @@
    sibling of the marketing top-nav, not a new visual language.
 
    Restyled to match docs.vellar.xyz's sidebar (a sibling product's real
-   marketing docs site): the active-item treatment is now a confident
-   FILLED clip-cut pill (solid --lp-mint + ink text — the same "confident
-   fill, dark text" convention as .lp-btn--sun, not the paler
-   --lp-mint-soft used elsewhere for decorative tints), not a left border.
-   Items get more breathing room (see .lp-side-nav gap / .lp-side-link
-   padding below) and are grouped under small-caps section labels that
-   reuse .lp-eyebrow's type ramp. No bullet/icon marker — the reference
-   is text-only, and the filled pill + extra padding already carries
-   enough presence that a marker would be redundant. */
+   marketing docs site), corrected against the actual reference screenshot
+   (an earlier pass over-read "confident fill" and used solid --lp-mint,
+   which reads far more saturated than the real docs sidebar — the real
+   reference is a PALE mint-tinted pill (--lp-mint-soft) with a thin
+   border, dark ink text throughout, not a bold color block): the sidebar
+   itself is a bordered, clip-cut card sitting on the page (not just a
+   border-right hairline), and the active item is --lp-mint-soft fill +
+   a --lp-line-strong-weight border + --lp-ink text. Items get more
+   breathing room (see .lp-side-nav gap / .lp-side-link padding below)
+   and are grouped under small-caps section labels that reuse
+   .lp-eyebrow's type ramp. No bullet/icon marker — the reference is
+   text-only. */
 
 .lp .lp-shell {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  /* 248px sidebar + its own 1rem left margin (see .lp-sidebar) so the
+     rendered sidebar card is genuinely 248px wide, not 248px minus its
+     own inset. */
+  grid-template-columns: calc(248px + var(--lp-sp-4)) minmax(0, 1fr);
   align-items: start;
   min-height: 100svh;
 }
 .lp .lp-sidebar {
   position: sticky;
-  top: 0;
-  height: 100svh;
+  top: var(--lp-sp-4);
+  align-self: start;
+  height: calc(100svh - var(--lp-sp-4) * 2);
+  margin: var(--lp-sp-4) 0 var(--lp-sp-4) var(--lp-sp-4);
   display: flex;
   flex-direction: column;
   background: var(--lp-paper);
-  border-right: 1px solid var(--lp-line);
+  border: 1px solid var(--lp-line);
+  clip-path: var(--lp-clip-tr-md);
   padding: var(--lp-sp-6) var(--lp-sp-4);
 }
 .lp .lp-side-brand {
@@ -587,7 +596,8 @@
   color: var(--lp-ink);
 }
 .lp .lp-side-link.active {
-  background: var(--lp-mint);
+  background: var(--lp-mint-soft);
+  box-shadow: inset 0 0 0 1px var(--lp-line-strong);
   color: var(--lp-ink);
   font-weight: 700;
 }
