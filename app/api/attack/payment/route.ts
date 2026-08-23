@@ -14,6 +14,11 @@ import {
   type ArmedPayload,
 } from "@/lib/attack-payment";
 
+// Arms one real payload, then fires 5 sequential live attacks (one of which,
+// replay, is 2 real /settle calls) — comfortably past the default 10s. Set
+// to Vercel Hobby's platform maximum.
+export const maxDuration = 60;
+
 /**
  * POST /api/attack/payment — Station 3's payment-attack track (5 attacks).
  *

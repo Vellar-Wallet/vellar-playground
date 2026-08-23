@@ -2,6 +2,10 @@ import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { SELLER_URL } from "@/lib/config";
 import { CatalogFetchError, fetchCatalog, type CatalogItem } from "@/lib/catalog";
 
+// A live seller fetch plus a facilitator catalog fetch, either of which can
+// hit a cold-start delay — past the default 10s. Vercel Hobby platform max.
+export const maxDuration = 30;
+
 /**
  * POST /api/verify-ownership — Station 2's "Verify now" streaming check.
  *

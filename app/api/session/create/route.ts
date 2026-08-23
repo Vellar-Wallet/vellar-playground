@@ -10,6 +10,14 @@ import { getSession, THIRTY_MINUTES_IN_MS } from "@/lib/session";
 import { fundWithFriendbot, getUsdcBalance, getXlmBalance } from "@/lib/stellar";
 import { buyUsdc, determineUsdcFundingTarget, openUsdcTrustline } from "@/lib/usdc";
 
+// Trustline + DEX purchase are two sequential classic-Horizon submits, each
+// with its own 35s ceiling (lib/usdc.ts's SUBMIT_TIMEOUT_SECONDS) — genuine
+// worst case is ~70s, past Vercel Hobby's 60s hard cap on maxDuration. Set to
+// the platform maximum; a true worst-case double-timeout can still get cut
+// off on Hobby specifically (Pro allows higher) — a real, disclosed
+// limitation of the free tier, not something this number can paper over.
+export const maxDuration = 60;
+
 // ---------------------------------------------------------------------------
 // Wire format
 // ---------------------------------------------------------------------------

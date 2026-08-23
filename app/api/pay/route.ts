@@ -2,6 +2,14 @@ import { getSession } from "@/lib/session";
 import { SELLER_URL } from "@/lib/config";
 import { attemptPayment, PaymentError, type PayProgressEvent, type PayResult } from "@/lib/pay";
 
+// Step 1's own cold-start allowance is 90s (FIRST_GET_TIMEOUT_MS below) on a
+// single attempt, and up to 3 attempts can run on a not_settled retry — the
+// genuine worst case is well past Vercel Hobby's 60s hard cap on
+// maxDuration. Set to the platform maximum; a real worst-case cold-start-plus-
+// retry sequence can still get cut off on Hobby specifically (Pro allows
+// higher) — a disclosed limitation of the free tier, not silently hidden.
+export const maxDuration = 60;
+
 // ---------------------------------------------------------------------------
 // Wire format
 // ---------------------------------------------------------------------------

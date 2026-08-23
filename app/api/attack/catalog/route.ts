@@ -1,6 +1,11 @@
 import { FACILITATOR_URL } from "@/lib/config";
 import { fetchCatalog, CatalogFetchError, type CatalogItem } from "@/lib/catalog";
 
+// Two live facilitator polls with a deliberate 4s gap between them
+// (POLL_GAP_MS below), each of which can also hit a cold-start delay — past
+// the default 10s. Vercel Hobby platform max.
+export const maxDuration = 30;
+
 /**
  * POST /api/attack/catalog — Station 3's catalog-attack track, attacks 6
  * (ssrf_linklocal) and 7 (displace_verified). Attack 8 (prompt_injection) is

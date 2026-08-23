@@ -1,5 +1,10 @@
 import { CatalogFetchError, fetchCatalog } from "@/lib/catalog";
 
+// fetchCatalog's own internal timeout is 60s (the facilitator's documented
+// cold-start allowance) — the function needs at least that much headroom.
+// Vercel Hobby platform max.
+export const maxDuration = 60;
+
 /**
  * GET /api/catalog — proxies GET {FACILITATOR_URL}/discovery/resources.
  *

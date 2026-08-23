@@ -1,5 +1,9 @@
 import { FacilitatorFetchError, fetchFacilitatorJson } from "@/lib/facilitator";
 
+// fetchFacilitatorJson's own internal timeout is 60s (the facilitator's
+// documented cold-start allowance). Vercel Hobby platform max.
+export const maxDuration = 60;
+
 /**
  * GET /api/search?query=... — proxies GET {FACILITATOR_URL}/discovery/search?query=...
  *
