@@ -149,6 +149,32 @@ describe("POST /api/verify-ownership — no session involvement", () => {
     120_000,
   );
 
+  it(
+    "distinguishes a payTo match on a still-unverified resource from a durably-verified one via alreadyVerified, " +
+      "not just verdictText's wording",
+    async () => {
+      // The exact bug report this field/copy exists to fix: rendering a
+      // payTo match on an UNVERIFIED resource identically to a durably
+      // VERIFIED one read as "it says verified" to a real user, even
+      // though verdictText's own wording was hedged. Confirmed live
+      // against the real catalog (not assumed): "hash" currently sits at
+      // ownershipState "unverified" with several real settlements, so a
+      // match here is exactly the case that used to read as confusing.
+      const res = await POST(new Request("http://localhost/api/verify-ownership", { method: "POST", body: JSON.stringify({ id: "hash" }) }));
+      expect(res.status).toBe(200);
+      const { events } = await readNdjsonStream(res);
+
+      const verdictEvent = events.find((e) => e.step === "verdict" && e.status === "done");
+      expect(verdictEvent?.match).toBe(true);
+      expect(verdictEvent?.alreadyVerified).toBe(false);
+      // The headline no longer leads with "Match" for this case — it leads
+      // with the catalog state that actually matters to a visitor deciding
+      // whether to trust this resource.
+      expect(verdictEvent?.verdictText as string).toMatch(/still unverified/i);
+    },
+    120_000,
+  );
+
   it("falls back to the default resource for an id outside the allow-list — never passes it through as a path", async () => {
     // The whole security property this route depends on: an unrecognized id
     // must NOT reach the fetch as a raw path/URL — it silently falls back

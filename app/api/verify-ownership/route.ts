@@ -213,6 +213,13 @@ type StreamEvent =
       step: "verdict";
       status: "done";
       match: boolean;
+      // Distinct from `match` on purpose: a client rendering just "Match ✓"
+      // for BOTH this and the durably-verified case is exactly what reads
+      // as "verified" to a user when the catalog still says otherwise (see
+      // this field's own doc comment at its computation site below). The
+      // client renders these as two visually distinct outcomes, not by
+      // sniffing verdictText's wording.
+      alreadyVerified: boolean;
       verdictText: string;
       challengePayTos: string[];
       boundPayTos: string[];
@@ -404,6 +411,16 @@ export async function POST(req: Request): Promise<Response> {
         // -----------------------------------------------------------------
         const boundSet = new Set(boundPayTos);
         const match = challengePayTos.some((c) => boundSet.has(c));
+        // Sent to the client as its own field (not left for the client to
+        // infer from verdictText's wording) precisely BECAUSE a payTo
+        // match on a still-unverified resource is easy to visually
+        // conflate with "verified" — this route can genuinely confirm the
+        // challenge and the catalog binding agree right now, but
+        // ownershipState only becomes the durable "verified" latch via a
+        // real settlement + the facilitator's own background re-probe
+        // (see the "else if (match)" branch below). Rendering both cases
+        // identically is exactly the confusing UI this field exists to
+        // prevent.
         const alreadyVerified = trust?.ownershipState === "verified";
 
         let verdictText: string;
@@ -426,11 +443,16 @@ export async function POST(req: Request): Promise<Response> {
           // Only a real settlement can do that (via /pay), and even then
           // only once the facilitator's own cooldown on this resource has
           // passed and its background re-probe actually runs.
+          // Leads with "Still Unverified" rather than "Match" — the catalog
+          // state a visitor can already see (the badge on this page's own
+          // picker) is the fact that matters most here; "match" is the
+          // supporting detail, not the headline. Burying the caveat after
+          // an upfront "Match" is exactly what made this read as "verified"
+          // before this field/copy existed.
           verdictText =
-            "Match — the seller's challenge names the bound address. This resource's own catalog state hasn't " +
-            "caught up to \"verified\" yet, but this live check confirms it would pass. This check is read-only " +
-            "and can't cause that catalog update itself — only a real settlement (via Pay) can, and even then " +
-            "the facilitator re-verifies on its own schedule, not immediately.";
+            "Still Unverified in the catalog — but the seller's challenge DOES name the bound address right now. " +
+            "This check is read-only and can never flip that catalog state itself; only a real settlement (via " +
+            "Pay) can, and even then the facilitator re-verifies on its own schedule, not immediately.";
         } else {
           // A genuine mismatch is possible but not expected for any
           // resource on the known demo seller — handled honestly rather
@@ -445,6 +467,7 @@ export async function POST(req: Request): Promise<Response> {
           step: "verdict",
           status: "done",
           match,
+          alreadyVerified,
           verdictText,
           challengePayTos,
           boundPayTos,

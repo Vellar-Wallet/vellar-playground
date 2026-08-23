@@ -71,6 +71,12 @@ function initialOwnershipSteps(): OwnershipStepMap {
 
 interface OwnershipVerdictResult {
   match: boolean;
+  // From the route directly, not inferred from verdictText's wording — see
+  // that field's own doc comment in route.ts on why: rendering a payTo
+  // match on a still-unverified resource identically to a durably-verified
+  // one is exactly what read as "it says verified" to a visitor before
+  // this existed, even though the wording itself was hedged.
+  alreadyVerified: boolean;
   verdictText: string;
   challengePayTos: string[];
   boundPayTos: string[];
@@ -207,6 +213,7 @@ export default function VerifyPage() {
             if (verdictEvent && typeof verdictEvent.match === "boolean" && typeof verdictEvent.verdictText === "string") {
               const result: OwnershipVerdictResult = {
                 match: verdictEvent.match,
+                alreadyVerified: verdictEvent.alreadyVerified === true,
                 verdictText: verdictEvent.verdictText,
                 challengePayTos: Array.isArray(verdictEvent.challengePayTos) ? (verdictEvent.challengePayTos as string[]) : [],
                 boundPayTos: Array.isArray(verdictEvent.boundPayTos) ? (verdictEvent.boundPayTos as string[]) : [],
@@ -434,7 +441,23 @@ export default function VerifyPage() {
 
               {ownership.status === "success" && (
                 <div style={{ marginTop: "var(--lp-sp-4)" }}>
-                  <p className="lp-lead" style={{ fontWeight: 700 }}>
+                  {/* A visually distinct badge, not just wording, for
+                      "matched but still Unverified in the catalog" vs.
+                      "durably Verified" — rendering both as one undifferentiated
+                      bold paragraph is exactly what made a payTo match on an
+                      unverified resource read as "it says verified" (see
+                      alreadyVerified's own doc comment above). match=false
+                      (a genuine mismatch) gets neither badge — it's an
+                      unexpected/error-flavored result, not a trust state. */}
+                  {ownership.result.match && (
+                    <span
+                      className="lp-verified"
+                      style={!ownership.result.alreadyVerified ? { background: "var(--lp-paper-tint)" } : undefined}
+                    >
+                      {ownership.result.alreadyVerified ? "✓ Verified" : "Still Unverified"}
+                    </span>
+                  )}
+                  <p className="lp-lead" style={{ marginTop: "var(--lp-sp-2)" }}>
                     {ownership.result.verdictText}
                   </p>
                   <div className="lp-cta-row">

@@ -1005,6 +1005,15 @@
 .lp .lp-dpanel--dark .lp-mrow b.ok {
   color: var(--dpanel-dark-accent);
 }
+/* .lp-verified sets no color of its own (inherits) — inside a dark panel
+   that inherits --lp-on-dark (light text, set by .lp-dpanel--dark above),
+   rendered on the badge's own light mint/paper-tint background: light
+   text on a light chip, illegible. Same failure mode .lp-step-row's own
+   doc comment above already documents; force real ink text on both badge
+   variants explicitly rather than letting either inherit. */
+.lp .lp-dpanel--dark .lp-verified {
+  color: var(--lp-ink);
+}
 /* .lp-step-row's own base color (--lp-ink-faint, a translucent forest-
    green) is meant for the paper-white surfaces it appears on everywhere
    else — inside a dark panel it never got an override, so it rendered as
