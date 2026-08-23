@@ -94,6 +94,28 @@
   --lp-clip-br-md: polygon(0 0, 100% 0, 100% calc(100% - 28px), calc(100% - 28px) 100%, 0 100%);
   --lp-clip-tr-md: polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
   --lp-clip-tl-lg: polygon(0 44px, 44px 0, 100% 0, 100% 100%, 0 100%);
+  /* Both right-side corners cut (top-right AND bottom-right) — a floating
+     card whose outward-facing edge (the right side, toward the content
+     area) reads as cut on both ends, per the docs sidebar reference.
+     Outer shape + its 1px-inset variant, same border-as-background
+     technique and same diagonal-offset math as --lp-clip-br-md-in1 below
+     (w·√2 per corner: 28px + 1.41px = 28.41px). */
+  --lp-clip-r-md: polygon(
+    0 0,
+    calc(100% - 28px) 0,
+    100% 28px,
+    100% calc(100% - 28px),
+    calc(100% - 28px) 100%,
+    0 100%
+  );
+  --lp-clip-r-md-in1: polygon(
+    1px 1px,
+    calc(100% - 28.41px) 1px,
+    calc(100% - 1px) 28.41px,
+    calc(100% - 1px) calc(100% - 28.41px),
+    calc(100% - 28.41px) calc(100% - 1px),
+    1px calc(100% - 1px)
+  );
   /* Inner br-md shapes inset by the border width (diagonal offset is
      w·√2: 1.41px for 1px, 2.83px for 2px). A cut card paints its BORDER
      as the element background clipped to the outer shape, and its FILL
@@ -561,10 +583,28 @@
   margin: var(--lp-sp-4) 0 var(--lp-sp-4) var(--lp-sp-4);
   display: flex;
   flex-direction: column;
-  background: var(--lp-paper);
-  border: 1px solid var(--lp-line);
-  clip-path: var(--lp-clip-tr-md);
+  /* Border-as-background + inset-fill ::before — the same crisp-corner
+     technique every other bordered clip-cut card in this file uses
+     (.lp-dpanel/.lp-pcard/.lp-step, etc.). A plain CSS `border` on a
+     clip-path'd element cannot render the diagonal cut edges correctly
+     (the border either vanishes on the cut or renders distorted) — this
+     is what actually produces a crisp, uniform-width border all the way
+     around, cuts included. See --lp-clip-r-md/-in1 above: both right-side
+     corners (top-right AND bottom-right) are cut, matching the docs
+     sidebar reference. `position: sticky` (below) already establishes
+     the containing block the ::before needs — no separate `relative`
+     required alongside it. */
+  background: var(--lp-line); /* the 1px border */
+  clip-path: var(--lp-clip-r-md);
   padding: var(--lp-sp-6) var(--lp-sp-4);
+}
+.lp .lp-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--lp-paper);
+  clip-path: var(--lp-clip-r-md-in1);
 }
 /* Section group label — a sidebar-scoped variant of .lp-eyebrow (same
    weight/letter-spacing/uppercase convention) sized down slightly and
@@ -590,6 +630,7 @@
   gap: 4px;
 }
 .lp .lp-side-link {
+  position: relative;
   display: flex;
   align-items: center;
   padding: 12px var(--lp-sp-4);
@@ -606,11 +647,31 @@
   background: var(--lp-paper-tint);
   color: var(--lp-ink);
 }
+/* Active state — border-as-background + inset-fill ::before, same crisp-
+   corner technique as .lp-sidebar above (a box-shadow border, the previous
+   approach, follows the padding box rather than the clip-path and renders
+   soft/distorted on the cut corner — this renders a uniform-width border
+   through the cut too). The link's own background carries the border
+   color; ::before (behind the text, z-index: -1) carries the actual mint
+   fill, clipped to a 1px-inset shape. */
 .lp .lp-side-link.active {
-  background: var(--lp-mint-soft);
-  box-shadow: inset 0 0 0 1px var(--lp-line-strong);
+  background: var(--lp-line-strong); /* the 1px border */
   color: var(--lp-ink);
   font-weight: 700;
+}
+.lp .lp-side-link.active::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--lp-mint-soft);
+  clip-path: polygon(
+    1px 1px,
+    calc(100% - 1px) 1px,
+    calc(100% - 1px) calc(100% - 13.41px),
+    calc(100% - 13.41px) calc(100% - 1px),
+    1px calc(100% - 1px)
+  );
 }
 .lp .lp-side-foot {
   margin-top: auto;
