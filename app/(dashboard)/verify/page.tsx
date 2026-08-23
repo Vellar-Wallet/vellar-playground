@@ -73,7 +73,11 @@ interface OwnershipVerdictResult {
 
 type OwnershipStage =
   | { status: "idle" }
-  | { status: "checking"; startedAt: number; steps: OwnershipStepMap }
+  // wakingUp: true once a "waking_up" event has been seen this run — the
+  // demo seller can be cold-started on Render's free tier, same signal
+  // /pay's ledger already surfaces for the identical situation. Cleared on
+  // the next "checking" (a fresh run starts clean).
+  | { status: "checking"; startedAt: number; steps: OwnershipStepMap; wakingUp: boolean }
   | { status: "success"; result: OwnershipVerdictResult; steps: OwnershipStepMap }
   | { status: "error"; message: string; steps: OwnershipStepMap };
 
@@ -142,16 +146,24 @@ export default function VerifyPage() {
 
   async function runVerifyOwnership() {
     const steps = initialOwnershipSteps();
-    setOwnership({ status: "checking", startedAt: Date.now(), steps: { ...steps } });
+    setOwnership({ status: "checking", startedAt: Date.now(), steps: { ...steps }, wakingUp: false });
 
     function applyEvent(prev: OwnershipStage, event: OwnershipEvent): OwnershipStage {
       if (prev.status !== "checking") return prev;
+      if (event.step === "waking_up") {
+        return { ...prev, wakingUp: true };
+      }
       if (!OWNERSHIP_STEP_ORDER.includes(event.step as OwnershipStepName)) return prev;
       const stepName = event.step as OwnershipStepName;
       const status = event.status;
       if (status !== "active" && status !== "done" && status !== "error") return prev;
+      // A "done"/"error" on fetch_challenge clears any "waking up" framing
+      // — the seller has genuinely responded by then, same convention
+      // /pay's ledger uses for its own get_request step.
+      const clearsWakingUp = stepName === "fetch_challenge" && status !== "active";
       return {
         ...prev,
+        wakingUp: clearsWakingUp ? false : prev.wakingUp,
         steps: {
           ...prev.steps,
           [stepName]: { status: status as OwnershipStepStatus, event, message: typeof event.message === "string" ? event.message : undefined },
@@ -232,7 +244,6 @@ export default function VerifyPage() {
   const settlements = demoItem?.trust && "settlements" in demoItem.trust ? (demoItem.trust as { settlements?: number }).settlements : undefined;
 
   const steps = ownership.status === "checking" || ownership.status === "success" || ownership.status === "error" ? ownership.steps : initialOwnershipSteps();
-  const busy = ownership.status === "checking";
 
   return (
     <>
@@ -333,7 +344,13 @@ export default function VerifyPage() {
                 })}
               </div>
 
-              {busy && (
+              {ownership.status === "checking" && ownership.wakingUp && (
+                <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.85rem" }}>
+                  The demo seller looks like it&apos;s waking up from a cold start — this can take up to a
+                  minute on testnet. ({ownershipElapsed}s)
+                </p>
+              )}
+              {ownership.status === "checking" && !ownership.wakingUp && (
                 <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.85rem" }}>
                   Checking... ({ownershipElapsed}s)
                 </p>

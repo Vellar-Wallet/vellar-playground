@@ -28,6 +28,7 @@ import { x402Client } from "@x402/core/client";
 import { x402HTTPClient } from "@x402/core/http";
 import { ExactStellarScheme } from "@x402/stellar/exact/client";
 import { createEd25519Signer } from "@x402/stellar";
+import { fetchWithColdStartNotice } from "@/lib/fetch-with-cold-start-notice";
 
 const NETWORK = "stellar:testnet";
 const FETCH_TIMEOUT_MS = 30_000;
@@ -153,37 +154,6 @@ const VERIFY_RESPONSE_NOTE =
   "Response shown is what the seller received from the facilitator — the playground only observes the seller's final result.";
 
 /**
- * GET `resourceUrl` with a bounded timeout, emitting a "waking_up" progress
- * event (repeatable) if the response hasn't arrived within `coldStartAfterMs`.
- *
- * JUDGMENT CALL — client-side ticker, not server-side repeated ticks: the
- * server emits exactly ONE "waking_up" event the moment the 5s threshold is
- * crossed, then the real GET keeps running underneath; the client is
- * expected to start its own `useElapsedSeconds`-style ticker from the moment
- * it sees that event, exactly as `/status`'s existing cold-start UI already
- * does for the catalog fetch. This mirrors the rest of this app (see
- * app/page.tsx's `useElapsedSeconds`) rather than inventing a second,
- * server-driven periodic-tick mechanism for this one call site.
- */
-async function fetchWithColdStartNotice(
-  resourceUrl: string,
-  init: RequestInit,
-  hardTimeoutMs: number,
-  coldStartAfterMs: number,
-  onEvent?: OnPayEvent,
-): Promise<Response> {
-  const coldStartTimer = setTimeout(() => {
-    onEvent?.({ step: "waking_up", status: "active" });
-  }, coldStartAfterMs);
-
-  try {
-    return await fetch(resourceUrl, { ...init, signal: AbortSignal.timeout(hardTimeoutMs) });
-  } finally {
-    clearTimeout(coldStartTimer);
-  }
-}
-
-/**
  * One full attempt of the GET → 402 → pay → retry flow against `resourceUrl`,
  * signing with `secretKey`. Throws `PaymentError` on any failure — callers
  * that want the "retry the whole flow with a fresh payload" behavior
@@ -224,7 +194,9 @@ export async function attemptPayment(
 
   let unpaid: Response;
   try {
-    unpaid = await fetchWithColdStartNotice(resourceUrl, {}, getTimeoutMs, coldStartAfterMs, onEvent);
+    unpaid = await fetchWithColdStartNotice(resourceUrl, {}, getTimeoutMs, coldStartAfterMs, () =>
+      onEvent?.({ step: "waking_up", status: "active" }),
+    );
   } catch (err) {
     const message = `Could not reach the resource to start the payment: ${err instanceof Error ? err.message : String(err)}`;
     onEvent?.({ step: "get_request", status: "error", message });

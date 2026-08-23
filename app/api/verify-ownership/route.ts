@@ -1,10 +1,25 @@
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { SELLER_URL } from "@/lib/config";
 import { CatalogFetchError, fetchCatalog, type CatalogItem } from "@/lib/catalog";
+import { fetchWithColdStartNotice } from "@/lib/fetch-with-cold-start-notice";
 
 // A live seller fetch plus a facilitator catalog fetch, either of which can
-// hit a cold-start delay — past the default 10s. Vercel Hobby platform max.
-export const maxDuration = 30;
+// hit a cold-start delay on Render's free tier — past the default 10s.
+// BUG FIX: this used to say so and then not act on it — maxDuration was 30s
+// while the seller fetch below had its own separate FETCH_TIMEOUT_MS of
+// 15s, leaving almost no headroom for the catalog fetch afterward, and no
+// "waking up" messaging at all, so a genuinely cold seller (confirmed live:
+// Render's free tier can take well past 15s to answer its first request
+// after idling) surfaced as a flat, unexplained "Could not reach the
+// seller... aborted due to timeout" error rather than the same honest
+// "waking up" framing POST /api/pay already gives this exact situation.
+// Matched to that route's own established, disclosed tradeoff instead of
+// inventing a different number: maxDuration set to 60, the actual Vercel
+// Hobby platform ceiling (see app/api/pay/route.ts's own comment on this),
+// with the seller fetch's own timeout raised well above it so a real
+// worst-case cold start isn't cut off before the platform's own hard cap
+// would end the request anyway.
+export const maxDuration = 60;
 
 /**
  * POST /api/verify-ownership — Station 2's "Verify now" streaming check.
@@ -101,7 +116,16 @@ export const maxDuration = 30;
  * ---------------------------------------------------------------------------
  */
 
-const FETCH_TIMEOUT_MS = 15_000;
+// 90s, matching POST /api/pay's own FIRST_GET_TIMEOUT_MS for the identical
+// kind of call (a plain unpaid GET against this same seller) — see that
+// route's doc comment for why this deliberately exceeds maxDuration (60s):
+// the platform's own hard cap ends the request either way, so this ceiling
+// only has to be high enough not to cut the fetch off first on a real but
+// non-catastrophic cold start.
+const FETCH_TIMEOUT_MS = 90_000;
+// Same 5s threshold POST /api/pay uses before it starts showing "waking
+// up" framing instead of a silent wait.
+const COLD_START_AFTER_MS = 5_000;
 
 const HARDENING_DISCLOSURE =
   "The real facilitator also pins DNS and blocks private/internal addresses before fetching an arbitrary " +
@@ -136,6 +160,12 @@ interface DecodedChallenge {
 
 type StreamEvent =
   | { step: "fetch_challenge"; status: "active"; requestLine: string }
+  // Emitted (at most once) if the seller hasn't answered within
+  // COLD_START_AFTER_MS — same "the demo seller might be waking up from a
+  // cold start" signal POST /api/pay already gives, previously missing
+  // here entirely (a slow-but-not-catastrophic cold seller just looked
+  // like a silent hang, then a flat timeout error).
+  | { step: "waking_up"; status: "active" }
   | {
       step: "fetch_challenge";
       status: "done";
@@ -198,7 +228,9 @@ export async function POST(): Promise<Response> {
 
         let unpaid: Response;
         try {
-          unpaid = await fetch(resourceUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+          unpaid = await fetchWithColdStartNotice(resourceUrl, {}, FETCH_TIMEOUT_MS, COLD_START_AFTER_MS, () =>
+            emit({ step: "waking_up", status: "active" }),
+          );
         } catch (err) {
           const message = `Could not reach the seller to fetch its 402 challenge: ${err instanceof Error ? err.message : String(err)}`;
           emit({ step: "fetch_challenge", status: "error", message });
