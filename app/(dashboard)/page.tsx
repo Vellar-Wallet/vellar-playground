@@ -170,6 +170,87 @@ const DEMO_RESOURCE_URL = "https://vellar-seller-demo.onrender.com/quote";
 const COLD_START_CEILING_MS = 60_000;
 
 // ---------------------------------------------------------------------------
+// Ownership verification types — mirrors the NDJSON events streamed from
+// POST /api/verify-ownership (see that route's wire-format doc comment).
+// Five real steps, terminated by one "complete" event. Station 2.
+// ---------------------------------------------------------------------------
+
+type OwnershipStepName = "fetch_challenge" | "decode_header" | "parse_pay_to" | "compare_catalog" | "verdict";
+type OwnershipStepStatus = "pending" | "active" | "done" | "error";
+
+const OWNERSHIP_STEP_ORDER: OwnershipStepName[] = [
+  "fetch_challenge",
+  "decode_header",
+  "parse_pay_to",
+  "compare_catalog",
+  "verdict",
+];
+const OWNERSHIP_STEP_LABELS: Record<OwnershipStepName, string> = {
+  fetch_challenge: "Fetching the seller's 402 challenge",
+  decode_header: "Reading the PAYMENT-REQUIRED header",
+  parse_pay_to: "Parsing the payTo from the challenge",
+  compare_catalog: "Comparing against the bound address from the catalog",
+  verdict: "Verdict",
+};
+
+/** Loosely-typed raw event as received off the wire — same "narrow
+ *  field-by-field as each step's renderer reads it" convention as
+ *  LedgerEvent above (see that type's comment). */
+interface OwnershipEvent {
+  step: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+interface OwnershipStepState {
+  status: OwnershipStepStatus;
+  event?: OwnershipEvent;
+  message?: string;
+}
+
+type OwnershipStepMap = Record<OwnershipStepName, OwnershipStepState>;
+
+function initialOwnershipSteps(): OwnershipStepMap {
+  const pending: OwnershipStepState = { status: "pending" };
+  return {
+    fetch_challenge: { ...pending },
+    decode_header: { ...pending },
+    parse_pay_to: { ...pending },
+    compare_catalog: { ...pending },
+    verdict: { ...pending },
+  };
+}
+
+interface OwnershipVerdictResult {
+  match: boolean;
+  verdictText: string;
+  challengePayTos: string[];
+  boundPayTos: string[];
+}
+
+type OwnershipStage =
+  | { status: "idle" }
+  | { status: "checking"; startedAt: number; steps: OwnershipStepMap }
+  | { status: "success"; result: OwnershipVerdictResult; steps: OwnershipStepMap }
+  | { status: "error"; message: string; steps: OwnershipStepMap };
+
+/** Parses one line of the NDJSON stream emitted by POST /api/verify-ownership.
+ *  Same convention as parsePayStreamLine above. */
+function parseOwnershipStreamLine(line: string): OwnershipEvent | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && typeof parsed.step === "string" && typeof parsed.status === "string") {
+      return parsed as OwnershipEvent;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
 
@@ -210,11 +291,13 @@ export default function Home() {
   const [wallet, setWallet] = useState<WalletStage>({ status: "idle" });
   const [catalog, setCatalog] = useState<CatalogStage>({ status: "idle" });
   const [pay, setPay] = useState<PayStage>({ status: "idle" });
+  const [ownership, setOwnership] = useState<OwnershipStage>({ status: "idle" });
   const [copied, setCopied] = useState(false);
 
   const walletElapsed = useElapsedSeconds(wallet.status === "loading" ? wallet.startedAt : null);
   const catalogElapsed = useElapsedSeconds(catalog.status === "loading" ? catalog.startedAt : null);
   const payElapsed = useElapsedSeconds(pay.status === "paying" ? pay.startedAt : null);
+  const ownershipElapsed = useElapsedSeconds(ownership.status === "checking" ? ownership.startedAt : null);
 
   // Fetch the catalog automatically once a wallet exists.
   const fetchedForWallet = useRef(false);
@@ -654,6 +737,145 @@ export default function Home() {
   }
 
   // ---------------------------------------------------------------------
+  // Station 2 — ownership verification. Streams POST /api/verify-ownership
+  // (see that route's wire-format doc comment): five real steps, the
+  // playground's own independent re-check of the same kind of thing the
+  // facilitator's internal verifyResourceOwnership() does. No session
+  // involvement — this is public, unauthenticated data end to end.
+  //
+  // QUEST PROGRESS TRIGGER POINT (documented per the task's explicit ask):
+  // vellar.questProgress["station-2"] is written once this stream reaches
+  // its terminal "complete" event with status "done" — i.e. once the live
+  // re-verification check has genuinely run to a verdict (see the "verdict"
+  // step's applyEvent branch below, which stashes the parsed
+  // OwnershipVerdictResult, and the "complete" handling that persists it).
+  // This mirrors PayLedger's "station-1" trigger (written on that stream's
+  // own "complete"/"done"), so both stations agree on "the mechanism was
+  // genuinely demonstrated to a terminal outcome" as the completion
+  // signal — not merely "the button was clicked" (that fires on `checking`,
+  // before anything real has happened yet).
+  async function runVerifyOwnership() {
+    const steps = initialOwnershipSteps();
+    setOwnership({ status: "checking", startedAt: Date.now(), steps: { ...steps } });
+
+    function applyEvent(prev: OwnershipStage, event: OwnershipEvent): OwnershipStage {
+      if (prev.status !== "checking") return prev;
+      if (!OWNERSHIP_STEP_ORDER.includes(event.step as OwnershipStepName)) return prev;
+      const stepName = event.step as OwnershipStepName;
+      const status = event.status;
+      if (status !== "active" && status !== "done" && status !== "error") return prev;
+      return {
+        ...prev,
+        steps: {
+          ...prev.steps,
+          [stepName]: {
+            status: status as OwnershipStepStatus,
+            event,
+            message: typeof event.message === "string" ? event.message : undefined,
+          },
+        },
+      };
+    }
+
+    try {
+      const res = await fetch("/api/verify-ownership", { method: "POST" });
+      if (!res.ok || !res.body) {
+        setOwnership((prev) => ({
+          status: "error",
+          message: "We couldn't reach the server. Please try again.",
+          steps: prev.status === "checking" ? prev.steps : steps,
+        }));
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let settled = false;
+
+      const finish = (event: OwnershipEvent) => {
+        settled = true;
+        if (event.status === "done") {
+          // The "verdict" step (already applied via applyEvent above) is the
+          // real source of the result fields — read them back off the
+          // in-progress step map rather than re-deriving from "complete"
+          // (which carries no payload of its own, see the route's wire doc).
+          setOwnership((prev) => {
+            if (prev.status !== "checking") return prev;
+            const verdictEvent = prev.steps.verdict.event;
+            if (
+              verdictEvent &&
+              typeof verdictEvent.match === "boolean" &&
+              typeof verdictEvent.verdictText === "string"
+            ) {
+              const result: OwnershipVerdictResult = {
+                match: verdictEvent.match,
+                verdictText: verdictEvent.verdictText,
+                challengePayTos: Array.isArray(verdictEvent.challengePayTos)
+                  ? (verdictEvent.challengePayTos as string[])
+                  : [],
+                boundPayTos: Array.isArray(verdictEvent.boundPayTos) ? (verdictEvent.boundPayTos as string[]) : [],
+              };
+              writeQuestProgress("station-2", true);
+              return { status: "success", result, steps: prev.steps };
+            }
+            return {
+              status: "error",
+              message: "The verification stream ended without a clear verdict. Please try again.",
+              steps: prev.steps,
+            };
+          });
+          return;
+        }
+        const message = typeof event.message === "string" ? event.message : "Verification failed. Please try again.";
+        setOwnership((prev) => ({
+          status: "error",
+          message,
+          steps: prev.status === "checking" ? prev.steps : steps,
+        }));
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const event = parseOwnershipStreamLine(line);
+          if (!event) continue;
+          if (event.step === "complete") {
+            finish(event);
+            continue;
+          }
+          setOwnership((prev) => applyEvent(prev, event));
+        }
+      }
+
+      const trailing = parseOwnershipStreamLine(buffer);
+      if (trailing?.step === "complete") {
+        finish(trailing);
+      }
+
+      if (!settled) {
+        setOwnership((prev) => ({
+          status: "error",
+          message: "The connection ended before verification finished. Please try again.",
+          steps: prev.status === "checking" ? prev.steps : steps,
+        }));
+      }
+    } catch {
+      setOwnership((prev) => ({
+        status: "error",
+        message: "We couldn't reach the server. Please check your connection and try again.",
+        steps: prev.status === "checking" ? prev.steps : steps,
+      }));
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Start fresh — discards the server-side session cookie (the real source
   // of truth for the secret key) via DELETE /api/session, clears every
   // vellar.* localStorage key, then resets this page's in-memory React
@@ -678,6 +900,7 @@ export default function Home() {
     setWallet({ status: "idle" });
     setCatalog({ status: "idle" });
     setPay({ status: "idle" });
+    setOwnership({ status: "idle" });
     setCopied(false);
     fetchedForWallet.current = false;
   }
@@ -744,6 +967,28 @@ export default function Home() {
       {wallet.status === "ready" && pay.status !== "idle" && (
         <RunOnYourMachine publicKey={wallet.wallet.publicKey} resourceUrl={pay.resourceUrl} />
       )}
+
+      {/* ---- Station 2: ownership verification ----
+          PLACEMENT DECISION: below Station 1's payment ledger / "who is
+          involved" / "run this on your machine" — the natural next teaching
+          moment once a visitor has seen a 402 turn into a 200. Gated only on
+          `wallet.status === "ready"` (NOT on `pay.status !== "idle"`) —
+          unlike Station 1, this station teaches something about the
+          RESOURCE's durable, permanent verification state, which is true
+          regardless of whether this particular visitor has paid yet. A
+          visitor who never pays can still see the catalog entry, the
+          historical binding explanation, and run the live re-check. */}
+      {wallet.status === "ready" && (
+        <OwnershipSection
+          catalog={catalog}
+          ownership={ownership}
+          elapsed={ownershipElapsed}
+          onVerify={runVerifyOwnership}
+        />
+      )}
+
+      {/* ---- Station 2's own "Run this on your machine" footer ---- */}
+      {wallet.status === "ready" && <RunVerifyOnYourMachine />}
     </>
   );
 }
@@ -1348,6 +1593,328 @@ function RunOnYourMachine({ publicKey, resourceUrl }: { publicKey?: string; reso
           </button>
         </div>
         <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--lp-mono)", fontSize: "0.8125rem", margin: 0, color: "var(--lp-on-dark)" }}>{snippet}</pre>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Station 2 — ownership verification
+// ---------------------------------------------------------------------------
+//
+// Reuses the SAME .lp-step-row/.lp-step-mark 4-state pattern as Station 1's
+// PayLedger (mint=done/sun=active pulse/coral=error — "skipped" is unused
+// here, same as PayLedger) and the same .lp-fitem-derived collapsible
+// raw-bytes disclosure. No new visual language is invented for this station
+// — see the task's explicit instruction to reuse, not reinvent.
+//
+// GROUND TRUTH FRAMING (locked product decision, see task notes): the demo
+// resource is ALREADY durably verified from real payments made earlier in
+// this build. A visitor today will not see a live unverified->verified
+// transition, because src/catalog.ts's `everVerified` latch never resets
+// once tripped. This section is honest about that: it shows the ALREADY-
+// established verdict (from the live catalog) plus a genuinely live
+// re-confirmation (the "Verify now" stream), and never fabricates a fake
+// first-discovery animation.
+
+function ownershipStepStatusLabel(step: OwnershipStepState): string {
+  if (step.status === "pending") return "Waiting";
+  if (step.status === "active") return "In progress";
+  if (step.status === "error") return step.message ?? "Failed";
+  return "Done";
+}
+
+/** One raw-wire-bytes disclosure for a single ownership-check step. Same
+ *  "render nothing until there's something real to show" rule as Station
+ *  1's StepRawBytes. */
+function OwnershipStepRawBytes({ step, stepName }: { step: OwnershipStepState; stepName: OwnershipStepName }) {
+  const event = step.event;
+  if (!event || step.status === "pending" || step.status === "active") return null;
+
+  let rows: Array<{ label: string; value: string }> = [];
+  let note: string | undefined;
+
+  if (stepName === "fetch_challenge" && event.status === "done") {
+    rows = [
+      { label: "request", value: String(event.requestLine ?? "") },
+      { label: "status", value: String(event.responseStatus ?? "") },
+      {
+        label: "PAYMENT-REQUIRED (raw, base64)",
+        value: truncateMiddle(String(event.rawPaymentRequiredHeader ?? ""), 28, 10),
+      },
+    ];
+    note = typeof event.hardeningSkippedNote === "string" ? event.hardeningSkippedNote : undefined;
+  } else if (stepName === "decode_header" && event.status === "done") {
+    rows = [{ label: "decoded challenge", value: truncateMiddle(JSON.stringify(event.decoded ?? {}), 40, 10) }];
+  } else if (stepName === "parse_pay_to" && event.status === "done") {
+    const payTos = Array.isArray(event.payTos) ? (event.payTos as string[]) : [];
+    rows = payTos.map((p, i) => ({ label: `payTo[${i}]`, value: p }));
+  } else if (stepName === "compare_catalog" && event.status === "done") {
+    const boundPayTos = Array.isArray(event.boundPayTos) ? (event.boundPayTos as string[]) : [];
+    rows = [
+      { label: "resource", value: truncateMiddle(String(event.resource ?? ""), 24, 10) },
+      ...boundPayTos.map((p, i) => ({ label: `bound payTo[${i}]`, value: p })),
+      { label: "ownershipState", value: String(event.ownershipState ?? "—") },
+      { label: "lastSettled", value: String(event.lastSettled ?? "—") },
+    ];
+  } else if (stepName === "verdict" && event.status === "done") {
+    const challengePayTos = Array.isArray(event.challengePayTos) ? (event.challengePayTos as string[]) : [];
+    const boundPayTos = Array.isArray(event.boundPayTos) ? (event.boundPayTos as string[]) : [];
+    rows = [
+      { label: "challenge payTo(s)", value: challengePayTos.join(", ") || "—" },
+      { label: "bound payTo(s)", value: boundPayTos.join(", ") || "—" },
+      { label: "match", value: String(event.match ?? "") },
+    ];
+  } else if (event.status === "error") {
+    rows = [{ label: "error", value: step.message ?? "failed" }];
+  }
+
+  if (rows.length === 0 && !note) return null;
+
+  return (
+    <details className="lp-fitem lp-fitem--raw">
+      <summary>
+        <span>Raw wire bytes</span>
+        <span className="pm" aria-hidden>
+          +
+        </span>
+      </summary>
+      <div className="body">
+        <MonoRows>
+          {rows.map((r, i) => (
+            <MonoRow key={`${r.label}-${i}`} label={r.label} value={r.value} />
+          ))}
+        </MonoRows>
+        {note && (
+          <p className="lp-lead" style={{ fontSize: "0.8rem", marginTop: "var(--lp-sp-3)" }}>
+            {note}
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function OwnershipSection({
+  catalog,
+  ownership,
+  elapsed,
+  onVerify,
+}: {
+  catalog: CatalogStage;
+  ownership: OwnershipStage;
+  elapsed: number;
+  onVerify: () => void;
+}) {
+  const demoItem = catalog.status === "ready" ? catalog.items.find((item) => item.resource === DEMO_RESOURCE_URL) : undefined;
+  const trust = trustLabel(demoItem?.trust);
+  const accept = demoItem?.accepts?.[0];
+  const boundPayTo = accept?.payTo;
+  const lastSettled = demoItem?.trust && "lastSettled" in demoItem.trust ? (demoItem.trust as { lastSettled?: string }).lastSettled : undefined;
+  const settlements = demoItem?.trust && "settlements" in demoItem.trust ? (demoItem.trust as { settlements?: number }).settlements : undefined;
+
+  const steps = ownership.status === "checking" || ownership.status === "success" || ownership.status === "error" ? ownership.steps : initialOwnershipSteps();
+  const busy = ownership.status === "checking";
+
+  return (
+    <div style={{ marginTop: "var(--lp-sp-8)" }}>
+      <Eyebrow>Ownership verification</Eyebrow>
+      <h2 style={{ marginTop: "var(--lp-sp-4)" }}>
+        Once proven, <em>it can&apos;t be taken back.</em>
+      </h2>
+      <p className="lp-lead" style={{ marginTop: "var(--lp-sp-3)" }}>
+        The facilitator&apos;s differentiator: a resource&apos;s ownership binding, once proven by a real settlement,
+        is a permanent latch — not a badge that can flip back off. Once proven, a later settlement from a different
+        address can&apos;t displace it.
+      </p>
+
+      <div className="lp-dgrid lp-dgrid--wide" style={{ marginTop: "var(--lp-sp-6)" }}>
+        {/* ---- Catalog entry + historical binding ---- */}
+        <div className="lp-dpanel">
+          <div className="lp-dpanel-head">
+            <h3>The catalog entry</h3>
+          </div>
+          {!demoItem && (
+            <p className="lp-lead" style={{ fontSize: "0.9rem" }}>
+              {catalog.status === "loading" ? "Loading the catalog..." : "The demo resource isn't in the catalog yet."}
+            </p>
+          )}
+          {demoItem && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--lp-sp-3)" }}>
+              <div>
+                <b>{demoItem.description || demoItem.resource}</b>
+                <div className="lp-lead" style={{ fontSize: "0.85rem", marginTop: "var(--lp-sp-1, 4px)" }}>
+                  {formatAtomicAmount(accept?.amount)} atomic of {truncateMiddle(accept?.asset || "—")}
+                  {" · "}
+                  {truncateMiddle(demoItem.resource, 24, 10)}
+                </div>
+              </div>
+              <span
+                className="lp-verified"
+                style={!trust.verified ? { background: "var(--lp-paper-tint)" } : undefined}
+              >
+                {trust.verified ? "✓ " : ""}
+                {trust.text}
+              </span>
+
+              <div style={{ marginTop: "var(--lp-sp-2)" }}>
+                <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
+                  What the facilitator did, historically: it fetched the seller&apos;s own 402 challenge, compared the
+                  payTo it names ({boundPayTo ? truncateMiddle(boundPayTo, 10, 6) : "—"}) against the address that
+                  settled, and found a match — binding this resource&apos;s ownership permanently.
+                </p>
+                <MonoRows>
+                  <MonoRow label="settlements" value={typeof settlements === "number" ? String(settlements) : "—"} />
+                  <MonoRow label="last settled" value={lastSettled ?? "—"} />
+                </MonoRows>
+                <p className="lp-lead" style={{ fontSize: "0.75rem", marginTop: "var(--lp-sp-2)" }}>
+                  &quot;Last settled&quot; is the closest publicly-available signal to &quot;when this was first
+                  proven&quot; — the facilitator does track a separate first-proof tombstone internally, but it
+                  isn&apos;t exposed on the public catalog endpoint, so this shows the real field that is.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ---- Verify now — live 5-step re-check ---- */}
+        <div className="lp-dpanel lp-dpanel--dark">
+          <div className="lp-dpanel-head">
+            <h3>Verify now</h3>
+          </div>
+          <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
+            The playground is performing the same check the facilitator runs — fetching the seller&apos;s own 402
+            challenge and comparing the payTo it names against the bound address.
+          </p>
+          <p className="lp-lead" style={{ fontSize: "0.75rem" }}>
+            The real facilitator also pins DNS and blocks private/internal addresses before fetching an arbitrary
+            seller URL; this demo check skips that hardening since it&apos;s only ever pointed at a known, fixed demo
+            resource.
+          </p>
+
+          {ownership.status === "idle" && (
+            <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-4)" }}>
+              <LpActionButton variant="sun" onClick={onVerify}>
+                Verify now →
+              </LpActionButton>
+            </div>
+          )}
+
+          {ownership.status !== "idle" && (
+            <>
+              <div className="lp-steps-card" style={{ marginTop: "var(--lp-sp-4)" }}>
+                {OWNERSHIP_STEP_ORDER.map((stepName) => {
+                  const step = steps[stepName];
+                  return (
+                    <div key={stepName}>
+                      <div className="lp-step-row" data-state={step.status}>
+                        <span className="lp-step-mark" aria-hidden />
+                        <span className="lp-step-label">{OWNERSHIP_STEP_LABELS[stepName]}</span>
+                        <span className="lp-step-note">{ownershipStepStatusLabel(step)}</span>
+                      </div>
+                      <OwnershipStepRawBytes step={step} stepName={stepName} />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {busy && (
+                <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.85rem" }}>
+                  Checking... ({elapsed}s)
+                </p>
+              )}
+
+              {ownership.status === "success" && (
+                <div style={{ marginTop: "var(--lp-sp-4)" }}>
+                  <p className="lp-lead" style={{ fontWeight: 700 }}>
+                    {ownership.result.verdictText}
+                  </p>
+                  <div className="lp-cta-row">
+                    <LpActionButton variant="ghost" size="sm" onClick={onVerify}>
+                      Run again
+                    </LpActionButton>
+                  </div>
+                </div>
+              )}
+
+              {ownership.status === "error" && (
+                <div style={{ marginTop: "var(--lp-sp-4)" }}>
+                  <p className="lp-lead">{ownership.message}</p>
+                  <div className="lp-cta-row">
+                    <LpActionButton variant="ghost" size="sm" onClick={onVerify}>
+                      Try again
+                    </LpActionButton>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Station 2's "Run this on your machine" footer
+// ---------------------------------------------------------------------------
+//
+// SIBLING COMPONENT, not an extension of RunOnYourMachine — see the task
+// report's reasoning: Station 1's RunOnYourMachine has a CLI-tab/curl-tab
+// shape specific to REPLICATING A PAYMENT (a PAYER_SECRET placeholder, a
+// buyer-classic.mjs invocation). Station 2 replicates something structurally
+// different and simpler: a single, fully real, copy-pasteable curl one-liner
+// with no secret/tab distinction at all (there is no session involvement in
+// this station to begin with). Forcing that into RunOnYourMachine via a
+// "which station" prop would mean threading dead CLI-tab logic through a
+// component whose content shape doesn't apply — a sibling component that
+// reuses the SAME .lp-trace-panel copy-button visual structure (not the
+// internals) is the cleaner DRY cut here: shared look, independent content.
+//
+// The command replicates step 1 ("Fetching the seller's 402 challenge") and
+// step 2 ("Reading the PAYMENT-REQUIRED header") manually: `curl -sD -` to
+// capture response headers on stdout alongside the body, piped through a
+// small shell one-liner that extracts the payment-required header and
+// base64-decodes it — genuinely runnable, not a fabricated example.
+
+function RunVerifyOnYourMachine() {
+  const [copiedSnippet, setCopiedSnippet] = useState(false);
+
+  const curlSnippet = [
+    `curl -sD - ${DEMO_RESOURCE_URL} -o /dev/null \\`,
+    `  | grep -i '^payment-required:' \\`,
+    `  | cut -d' ' -f2 \\`,
+    `  | tr -d '\\r' \\`,
+    "  | base64 -d",
+    "",
+    "# Expect: HTTP 402, and a decoded JSON challenge whose accepts[0].payTo",
+    "# is the address this station compares against the catalog's bound",
+    "# address for the same resource.",
+  ].join("\n");
+
+  return (
+    <div style={{ marginTop: "var(--lp-sp-8)" }}>
+      <Eyebrow>Run this on your machine</Eyebrow>
+      <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.9rem" }}>
+        Replicates steps 1 and 2 above manually: an unpaid GET against the seller, then decoding the
+        PAYMENT-REQUIRED header by hand.
+      </p>
+      <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-4)" }}>
+        <div className="head">
+          <span>curl</span>
+          <button
+            type="button"
+            onClick={async () => {
+              await copyToClipboard(curlSnippet);
+              setCopiedSnippet(true);
+              setTimeout(() => setCopiedSnippet(false), 1500);
+            }}
+            style={{ background: "none", border: 0, padding: 0, font: "inherit", color: "inherit", cursor: "pointer", textDecoration: "underline" }}
+          >
+            {copiedSnippet ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--lp-mono)", fontSize: "0.8125rem", margin: 0, color: "var(--lp-on-dark)" }}>{curlSnippet}</pre>
       </div>
     </div>
   );
