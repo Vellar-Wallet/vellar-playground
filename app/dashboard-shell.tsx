@@ -81,7 +81,19 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           next to it since there's no sidebar wordmark to rely on there. ---- */}
       <header className="lp-page-header">
         <Link href="/" className="lp-page-brand" aria-label="Vellar Playground — home">
-          <Image src="/logo-mark.png" alt="" width={32} height={32} priority style={{ height: 32, width: "auto" }} />
+          {/* logo-mark.png's real source is 2000x989 (~2.02:1), not square.
+              width/height here MUST match that real ratio at the size we
+              actually render (height:32 -> width~=65) -- next/image uses
+              these props to decide how large a source raster to generate
+              for each DPR variant. The old width={32} height={32} lied
+              about the source being square, so Next generated a needlessly
+              tiny 32x16 raster (correctly aspect-corrected, just far
+              smaller than the ~65x32 it was then stretched to via the CSS
+              override below) -- a small image upscaled ~2x by the browser,
+              which is what actually produced the blur, not a bad source
+              asset. Confirmed by fetching the compiled /_next/image output
+              directly before this fix: it was 32x16, not 65x32. */}
+          <Image src="/logo-mark.png" alt="" width={65} height={32} priority style={{ height: 32, width: "auto" }} />
         </Link>
         <span className="lp-page-brand-label">Vellar Playground</span>
       </header>
