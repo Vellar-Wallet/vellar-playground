@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Eyebrow, Frame, MonoRow, MonoRows } from "../../design/ui";
+import { cx, Eyebrow, Frame, MonoRow, MonoRows } from "../../design/ui";
 import { truncateMiddle } from "@/lib/format";
+import { useScrollSpy } from "@/lib/use-scroll-spy";
 import {
   BOND_ESCROW_CONTRACT_ID,
   BOND_SEQUENCE,
@@ -200,14 +201,26 @@ const FLOW_STEPS: FlowStep[] = [
   },
 ];
 
+/** Frame accent per step — lime/sun alternate for the routine setup/happy-
+ *  path steps (deposit, payment, delivery, happy-path withdraw), and the
+ *  dispute step gets coral: this system already treats coral as the
+ *  risk/error accent (see landing.css's header contrast notes), and
+ *  "dispute-path" is literally the step where the bond gets slashed — the
+ *  one moment on this page that IS a risk/danger event, so it earns the
+ *  one color the other four steps deliberately don't use. */
+function flowStepColor(id: string, index: number): "lime" | "sun" | "coral" {
+  if (id === "dispute-path") return "coral";
+  return index % 2 === 0 ? "lime" : "sun";
+}
+
 /** One clickable flow step: Frame-wrapped .lp-dpanel card, <details>-based
  *  expand for the plain-English explanation — reuses the established
  *  .lp-fitem disclosure pattern (FAQ-style, not the dark-panel --raw
  *  variant, since these cards sit on the light content background). */
 function FlowStepCard({ step, index }: { step: FlowStep; index: number }) {
   return (
-    <Frame color={index % 2 === 0 ? "lime" : "sun"}>
-      <div className="lp-dpanel">
+    <Frame color={flowStepColor(step.id, index)}>
+      <div className="lp-dpanel" id={step.id}>
         <details className="lp-fitem">
           <summary>
             <span>
@@ -305,13 +318,44 @@ function BondRunOnYourMachine() {
 }
 
 // ---------------------------------------------------------------------------
+// Part jump-nav — lighter version of "/"'s StationNav, same .lp-stationnav
+// CSS. bond/page.tsx is a single long topic (not 3 parallel demo stations),
+// but it does have 3 real, already-named parts (see this file's own
+// STRUCTURE comment above) plus 6 substantial expandable steps inside Part
+// 2 — long enough that a "jump to Part 2/3" affordance earns its place,
+// unlike /quest's grid-shaped 5-card layout which never needs one (see the
+// task report for that judgment call). Scroll-spy reuses the same
+// useScrollSpy hook as "/", just watching 3 ids instead of 3.
+// ---------------------------------------------------------------------------
+
+const BOND_PARTS = [
+  { id: "bond-part-1", label: "The problem" },
+  { id: "bond-part-2", label: "How it works" },
+  { id: "bond-part-3", label: "What's live" },
+] as const;
+
+function BondNav() {
+  const activeId = useScrollSpy(BOND_PARTS.map((p) => p.id));
+
+  return (
+    <nav className="lp-stationnav" aria-label="Jump to a part">
+      {BOND_PARTS.map((part) => (
+        <a key={part.id} href={`#${part.id}`} className={cx(part.id === activeId && "active")}>
+          {part.label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function BondPage() {
   return (
     <>
-      <div className="lp-content-head">
+      <div id="bond-part-1" className="lp-content-head">
         <Eyebrow>Provider bond system</Eyebrow>
         <h1>x402 settles before delivery is confirmed. This closes that gap.</h1>
         <p className="lp-lead">
@@ -325,7 +369,9 @@ export default function BondPage() {
         </p>
       </div>
 
-      <section style={{ marginTop: "var(--lp-sp-xl)" }}>
+      <BondNav />
+
+      <section id="bond-part-2" style={{ marginTop: "var(--lp-sp-xl)" }}>
         <Eyebrow>How it works</Eyebrow>
         <p className="lp-lead" style={{ marginTop: "var(--lp-sp-3)", marginBottom: "var(--lp-sp-6)" }}>
           Click any step to expand what actually happens on-chain, with the real proven transaction for
@@ -339,11 +385,11 @@ export default function BondPage() {
         </div>
       </section>
 
-      <section style={{ marginTop: "var(--lp-sp-xl)" }}>
+      <section id="bond-part-3" style={{ marginTop: "var(--lp-sp-xl)" }}>
         <Eyebrow>What&apos;s live today vs what&apos;s coming</Eyebrow>
 
         <div className="lp-dgrid lp-dgrid--wide" style={{ marginTop: "var(--lp-sp-6)" }}>
-          <div className="lp-dpanel">
+          <div className="lp-dpanel lp-dpanel--sun">
             <div className="lp-dpanel-head">
               <h2 style={{ fontSize: "var(--lp-fs-h4)" }}>Live today</h2>
             </div>

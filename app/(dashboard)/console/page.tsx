@@ -264,7 +264,7 @@ function EndpointCard({
           </div>
           <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.9rem" }}>
             Use the guided demo page to trigger these →{" "}
-            <Link href="/" style={{ textDecoration: "underline", color: "var(--lp-mint)" }}>
+            <Link href="/" style={{ textDecoration: "underline", color: "var(--lp-sun)" }}>
               Go to the demo
             </Link>
           </p>

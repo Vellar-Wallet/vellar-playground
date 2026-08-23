@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Eyebrow, Field, LpActionButton, MonoRow, MonoRows, TokenPill } from "../design/ui";
+import { cx, Eyebrow, Field, LpActionButton, MonoRow, MonoRows, TokenPill } from "../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
+import { useScrollSpy } from "@/lib/use-scroll-spy";
 import { FACILITATOR_URL, SELLER_URL } from "@/lib/config";
 import {
   clearAll,
@@ -383,6 +384,34 @@ function parseStreamLine(line: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Station jump-nav — see landing.css's ".lp-stationnav" doc comment for why
+// this is a sticky sub-nav bar rather than a floating scroll-spy rail.
+// Rendered only once wallet.status === "ready" (Home's return, below):
+// before that, Station 1 is just the "Get started" wallet card and there is
+// nothing yet for Stations 2/3 to jump to.
+// ---------------------------------------------------------------------------
+
+const STATIONS = [
+  { id: "station-1", label: "First payment" },
+  { id: "station-2", label: "Ownership verification" },
+  { id: "station-3", label: "Break it" },
+] as const;
+
+function StationNav() {
+  const activeId = useScrollSpy(STATIONS.map((s) => s.id));
+
+  return (
+    <nav className="lp-stationnav" aria-label="Jump to a station">
+      {STATIONS.map((station) => (
+        <a key={station.id} href={`#${station.id}`} className={cx(station.id === activeId && "active")}>
+          {station.label}
+        </a>
+      ))}
+    </nav>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1279,56 +1308,62 @@ export default function Home() {
         </p>
       </div>
 
-      <div className="lp-dgrid lp-dgrid--wide">
-        {/* ---- Wallet panel ---- */}
-        <div className="lp-dpanel">
-          <div className="lp-dpanel-head">
-            <h2>Your wallet</h2>
-          </div>
-          <WalletSection
-            wallet={wallet}
-            elapsed={walletElapsed}
-            onCreate={() => createWallet("button")}
-            copied={copied}
-            onCopy={async (pk) => {
-              await copyToClipboard(pk);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            }}
-            onStartFresh={startFresh}
-          />
-        </div>
+      {/* ---- In-page jump nav — only once there's more than one station's
+          worth of content to jump between (see StationNav's doc comment). ---- */}
+      {wallet.status === "ready" && <StationNav />}
 
-        {/* ---- Catalog panel ---- */}
-        {wallet.status === "ready" && (
+      <div id="station-1">
+        <div className="lp-dgrid lp-dgrid--wide">
+          {/* ---- Wallet panel ---- */}
           <div className="lp-dpanel">
-            <CatalogSection
-              catalog={catalog}
-              elapsed={catalogElapsed}
-              onRetry={loadCatalog}
-              onPay={payForResource}
-              payBusy={pay.status === "paying"}
+            <div className="lp-dpanel-head">
+              <h2>Your wallet</h2>
+            </div>
+            <WalletSection
+              wallet={wallet}
+              elapsed={walletElapsed}
+              onCreate={() => createWallet("button")}
+              copied={copied}
+              onCopy={async (pk) => {
+                await copyToClipboard(pk);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+              onStartFresh={startFresh}
             />
           </div>
+
+          {/* ---- Catalog panel ---- */}
+          {wallet.status === "ready" && (
+            <div className="lp-dpanel lp-dpanel--lime">
+              <CatalogSection
+                catalog={catalog}
+                elapsed={catalogElapsed}
+                onRetry={loadCatalog}
+                onPay={payForResource}
+                payBusy={pay.status === "paying"}
+              />
+            </div>
+          )}
+
+          {/* ---- Payment ledger panel (the cinematic moment) ---- */}
+          {wallet.status === "ready" && pay.status !== "idle" && (
+            <div className="lp-dpanel lp-dpanel--dark lp-dpanel--span2">
+              <PayLedger pay={pay} elapsed={payElapsed} onRetry={() => payForResource(pay.resourceUrl)} />
+            </div>
+          )}
+        </div>
+
+        {/* ---- Who is involved ---- */}
+        {wallet.status === "ready" && pay.status !== "idle" && (
+          <WhoIsInvolved publicKey={wallet.wallet.publicKey} pay={pay} />
         )}
 
-        {/* ---- Payment ledger panel (the cinematic moment) ---- */}
+        {/* ---- Run this on your machine ---- */}
         {wallet.status === "ready" && pay.status !== "idle" && (
-          <div className="lp-dpanel lp-dpanel--dark lp-dpanel--span2">
-            <PayLedger pay={pay} elapsed={payElapsed} onRetry={() => payForResource(pay.resourceUrl)} />
-          </div>
+          <RunOnYourMachine publicKey={wallet.wallet.publicKey} resourceUrl={pay.resourceUrl} />
         )}
       </div>
-
-      {/* ---- Who is involved ---- */}
-      {wallet.status === "ready" && pay.status !== "idle" && (
-        <WhoIsInvolved publicKey={wallet.wallet.publicKey} pay={pay} />
-      )}
-
-      {/* ---- Run this on your machine ---- */}
-      {wallet.status === "ready" && pay.status !== "idle" && (
-        <RunOnYourMachine publicKey={wallet.wallet.publicKey} resourceUrl={pay.resourceUrl} />
-      )}
 
       {/* ---- Station 2: ownership verification ----
           PLACEMENT DECISION: below Station 1's payment ledger / "who is
@@ -2101,8 +2136,8 @@ function OwnershipSection({
   const busy = ownership.status === "checking";
 
   return (
-    <div style={{ marginTop: "var(--lp-sp-8)" }}>
-      <Eyebrow>Ownership verification</Eyebrow>
+    <div id="station-2" style={{ marginTop: "var(--lp-sp-8)" }}>
+      <Eyebrow>Station 2 — ownership verification</Eyebrow>
       <h2 style={{ marginTop: "var(--lp-sp-4)" }}>
         Once proven, <em>it can&apos;t be taken back.</em>
       </h2>
@@ -2114,7 +2149,7 @@ function OwnershipSection({
 
       <div className="lp-dgrid lp-dgrid--wide" style={{ marginTop: "var(--lp-sp-6)" }}>
         {/* ---- Catalog entry + historical binding ---- */}
-        <div className="lp-dpanel">
+        <div className="lp-dpanel lp-dpanel--sun">
           <div className="lp-dpanel-head">
             <h3>The catalog entry</h3>
           </div>
@@ -2559,7 +2594,7 @@ function AttackBenchSection({
       : initialCatalogAttackMap();
 
   return (
-    <div style={{ marginTop: "var(--lp-sp-8)" }}>
+    <div id="station-3" style={{ marginTop: "var(--lp-sp-8)" }}>
       <Eyebrow>Station 3 — the attack bench</Eyebrow>
       <h2 style={{ marginTop: "var(--lp-sp-4)" }}>
         Break it. <em>Watch it refuse to break.</em>
@@ -2640,7 +2675,7 @@ function AttackBenchSection({
       </div>
 
       {/* ---- Catalog-attack track ---- */}
-      <div className="lp-dpanel" style={{ marginTop: "var(--lp-sp-6)" }}>
+      <div className="lp-dpanel lp-dpanel--coral" style={{ marginTop: "var(--lp-sp-6)" }}>
         <div className="lp-dpanel-head">
           <h3>Catalog attacks</h3>
         </div>

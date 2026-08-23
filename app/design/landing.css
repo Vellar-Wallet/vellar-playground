@@ -494,12 +494,21 @@
 }
 
 /* ---- Dashboard shell -------------------------------------------
-   Left sidebar + content area for the four app routes (/, /catalog,
-   /status, /console). Same tokens/moves as .lp-nav above (paper ground,
-   forest ink, zero radius, clip-cut corners) — a vertical sibling of the
-   marketing top-nav, not a new visual language. The active-item treatment
-   mirrors .lp-nav-links a.active's mint underline, translated to a left
-   border since the item is a full-width row rather than an inline link. */
+   Left sidebar + content area for the six app routes (/, /catalog,
+   /status, /console, /quest, /bond). Same tokens/moves as .lp-nav above
+   (paper ground, forest ink, zero radius, clip-cut corners) — a vertical
+   sibling of the marketing top-nav, not a new visual language.
+
+   Restyled to match docs.vellar.xyz's sidebar (a sibling product's real
+   marketing docs site): the active-item treatment is now a confident
+   FILLED clip-cut pill (solid --lp-mint + ink text — the same "confident
+   fill, dark text" convention as .lp-btn--sun, not the paler
+   --lp-mint-soft used elsewhere for decorative tints), not a left border.
+   Items get more breathing room (see .lp-side-nav gap / .lp-side-link
+   padding below) and are grouped under small-caps section labels that
+   reuse .lp-eyebrow's type ramp. No bullet/icon marker — the reference
+   is text-only, and the filled pill + extra padding already carries
+   enough presence that a marker would be redundant. */
 
 .lp .lp-shell {
   display: grid;
@@ -537,45 +546,50 @@
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
+/* Section group label — a sidebar-scoped variant of .lp-eyebrow (same
+   weight/letter-spacing/uppercase convention) sized down slightly and
+   given its own top/bottom rhythm since it sits inside the narrow rail
+   rather than over a full-width section. Repeats above each NAV_ITEMS
+   group (see dashboard-shell.tsx's GROUPS). */
+.lp .lp-side-group {
+  padding: 0 var(--lp-sp-3) var(--lp-sp-2);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lp-ink-faint);
+}
 .lp .lp-side-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--lp-sp-6);
+}
+.lp .lp-side-nav > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .lp .lp-side-link {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px var(--lp-sp-3);
+  padding: 12px var(--lp-sp-4);
   font-size: var(--lp-fs-sm);
   font-weight: 600;
   color: var(--lp-ink-soft);
   text-decoration: none;
-  border-left: 3px solid transparent;
   clip-path: var(--lp-clip-br-sm);
   transition:
     background var(--lp-dur-fast) ease,
-    color var(--lp-dur-fast) ease,
-    border-color var(--lp-dur-fast) ease;
+    color var(--lp-dur-fast) ease;
 }
 .lp .lp-side-link:hover {
   background: var(--lp-paper-tint);
   color: var(--lp-ink);
 }
 .lp .lp-side-link.active {
-  background: var(--lp-mint-soft);
-  border-left-color: var(--lp-mint);
-  color: var(--lp-ink);
-}
-.lp .lp-side-link i {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  background: var(--lp-line-strong);
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%);
-}
-.lp .lp-side-link.active i {
   background: var(--lp-mint);
+  color: var(--lp-ink);
+  font-weight: 700;
 }
 .lp .lp-side-foot {
   margin-top: auto;
@@ -639,11 +653,29 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: var(--lp-paper);
+  background: var(--panel-fill, var(--lp-paper));
   clip-path: var(--lp-clip-br-md-in1);
 }
 .lp .lp-dpanel--span2 {
   grid-column: span 2;
+}
+/* Tint modifiers — same --panel-fill hook .lp-tile uses (--tile-fill), so
+   a dashboard card can carry a section accent instead of defaulting to
+   plain paper (or, previously, always --lp-mint-soft). Body text stays
+   --lp-ink/--lp-ink-soft on every tint (all four pass the header's
+   documented contrast notes at this size), so no new text-color rule is
+   needed alongside these. */
+.lp .lp-dpanel--mint {
+  --panel-fill: var(--lp-mint-soft);
+}
+.lp .lp-dpanel--sun {
+  --panel-fill: var(--lp-sun-soft);
+}
+.lp .lp-dpanel--lime {
+  --panel-fill: var(--lp-lime-soft);
+}
+.lp .lp-dpanel--coral {
+  --panel-fill: var(--lp-coral-soft);
 }
 .lp .lp-dpanel--dark {
   background: var(--lp-ink);
@@ -748,6 +780,69 @@
   }
   .lp .lp-topbar-links a {
     font-size: 0.75rem;
+  }
+}
+
+/* ---- Station jump-nav (/, the 3-station guided demo) -------------
+   PART 2 CHOICE: a sticky sub-nav bar (not a floating scroll-spy rail) —
+   the dashboard's .lp-content column is already flanked by .lp-sidebar
+   with nothing left, and a second fixed rail competing with it for a
+   narrow content column would crowd the layout this system already
+   commits to. A sticky bar under the page header, above Station 1, stays
+   inside the existing content column and reuses the exact sticky + border
+   + paper-ground recipe .lp-nav-outer already establishes — a vertical
+   sibling of that pattern, not a new one. Active-item highlighting still
+   uses scroll-spy (useScrollSpy, IntersectionObserver-based, see
+   lib/use-scroll-spy.ts) so the current station is genuinely tracked as
+   you scroll, not just on click. */
+.lp .lp-stationnav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  gap: var(--lp-sp-2);
+  flex-wrap: wrap;
+  background: var(--lp-paper);
+  border-bottom: 1px solid var(--lp-line);
+  padding-block: var(--lp-sp-3);
+  margin-bottom: var(--lp-sp-8);
+}
+.lp .lp-stationnav a {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--lp-ink-soft);
+  padding: 8px 14px;
+  clip-path: var(--lp-clip-br-sm);
+  transition:
+    background var(--lp-dur-fast) ease,
+    color var(--lp-dur-fast) ease;
+}
+.lp .lp-stationnav a:hover {
+  background: var(--lp-paper-tint);
+  color: var(--lp-ink);
+}
+.lp .lp-stationnav a.active {
+  background: var(--lp-mint);
+  color: var(--lp-ink);
+}
+/* Keeps a jumped-to station/part's heading clear of the sticky nav bar
+   above it (roughly the bar's own height + its bottom margin) instead of
+   landing flush against the viewport top. Shared by "/"'s 3 stations and
+   "/bond"'s 3 parts — same .lp-stationnav bar, same fix. */
+#station-1,
+#station-2,
+#station-3,
+#bond-part-1,
+#bond-part-2,
+#bond-part-3 {
+  scroll-margin-top: var(--lp-sp-8);
+}
+@media (max-width: 900px) {
+  /* Stick below .lp-topbar (also sticky at top:0 under this breakpoint)
+     instead of underneath it. */
+  .lp .lp-stationnav {
+    top: 64px;
   }
 }
 

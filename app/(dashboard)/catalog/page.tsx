@@ -179,7 +179,7 @@ export default function CatalogPage() {
         </p>
       </div>
 
-      <div className="lp-dpanel" style={{ marginBottom: "var(--lp-sp-6)" }}>
+      <div className="lp-dpanel lp-dpanel--lime" style={{ marginBottom: "var(--lp-sp-6)" }}>
         {/* ---- Search box ---- */}
         <div>
           <label htmlFor="catalog-search" className="lp-eyebrow" style={{ display: "block", marginBottom: "var(--lp-sp-2)" }}>

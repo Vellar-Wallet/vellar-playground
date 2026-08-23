@@ -246,7 +246,7 @@ function StatusSnapshot({
 
       <div className="lp-dgrid" style={{ marginTop: "var(--lp-sp-6)" }}>
         {/* ---- Stat tiles panel ---- */}
-        <div className="lp-dpanel">
+        <div className="lp-dpanel lp-dpanel--sun">
           <div className="lp-dpanel-head">
             <h2>At a glance</h2>
           </div>

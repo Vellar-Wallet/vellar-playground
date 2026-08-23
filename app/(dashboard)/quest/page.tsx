@@ -179,7 +179,7 @@ function LevelCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="lp-dpanel">
+    <div className="lp-dpanel lp-dpanel--lime">
       <div className="lp-dpanel-head" style={{ alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--lp-sp-3)" }}>
           <LevelBadge done={done} />

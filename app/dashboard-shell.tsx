@@ -15,16 +15,47 @@ import { cx } from "./design/ui";
 // Logo: vela-wallet's apps/web/public/logo-light.png, copied into this app's
 // public/ directory — see the task report for why this asset was chosen over
 // a text-only wordmark (it was readily portable, so no need to fall back).
+//
+// Grouping (restyled to match docs.vellar.xyz's small-caps grouped sidebar):
+// - PLAYGROUND — Wallet (/) and Catalog (/catalog): the interactive demo
+//   core, where a visitor actually gets a funded wallet and spends from it.
+// - TOOLS — Status (/status) and Console (/console): operational utilities
+//   for inspecting the facilitator/session rather than driving the demo.
+// - LEARN — Quest (/quest) and Bond (/bond): explainer/progression content
+//   (the guided quest track and the bond-provider writeup), read more than
+//   operated.
 // ---------------------------------------------------------------------------
 
-const NAV_ITEMS = [
-  { href: "/", label: "Wallet" },
-  { href: "/catalog", label: "Catalog" },
-  { href: "/status", label: "Status" },
-  { href: "/console", label: "Console" },
-  { href: "/quest", label: "Quest" },
-  { href: "/bond", label: "Bond" },
-] as const;
+interface NavItem {
+  href: string;
+  label: string;
+}
+
+const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
+  {
+    label: "Playground",
+    items: [
+      { href: "/", label: "Wallet" },
+      { href: "/catalog", label: "Catalog" },
+    ],
+  },
+  {
+    label: "Tools",
+    items: [
+      { href: "/status", label: "Status" },
+      { href: "/console", label: "Console" },
+    ],
+  },
+  {
+    label: "Learn",
+    items: [
+      { href: "/quest", label: "Quest" },
+      { href: "/bond", label: "Bond" },
+    ],
+  },
+];
+
+const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((group) => group.items);
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
@@ -43,20 +74,24 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           <span>Vellar Playground</span>
         </Link>
         <nav className="lp-side-nav">
-          {NAV_ITEMS.map((item) => {
-            const active = isActive(pathname, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cx("lp-side-link", active && "active")}
-                aria-current={active ? "page" : undefined}
-              >
-                <i aria-hidden />
-                {item.label}
-              </Link>
-            );
-          })}
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label}>
+              <div className="lp-side-group">{group.label}</div>
+              {group.items.map((item) => {
+                const active = isActive(pathname, item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cx("lp-side-link", active && "active")}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div className="lp-side-foot">
           Stellar testnet demo · <a href="https://stellar.expert/explorer/testnet" target="_blank" rel="noreferrer">Explorer ↗</a>
