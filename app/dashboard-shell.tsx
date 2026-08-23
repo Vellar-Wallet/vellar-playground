@@ -145,11 +145,11 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             <div className="lp-side-journey">
               <Link
                 href={JOURNEY_MAP_ITEM.href}
-                // lp-side-link--bl: this one item cuts its bottom-LEFT
+                // lp-side-link--tr: this one item cuts its TOP-right
                 // corner instead of bottom-right, deliberately distinct
                 // from every other nav item below it (see that class's own
                 // doc comment in landing.css).
-                className={cx("lp-side-link", "lp-side-link--bl", isActive(pathname, JOURNEY_MAP_ITEM.href) && "active")}
+                className={cx("lp-side-link", "lp-side-link--tr", isActive(pathname, JOURNEY_MAP_ITEM.href) && "active")}
                 aria-current={isActive(pathname, JOURNEY_MAP_ITEM.href) ? "page" : undefined}
               >
                 {JOURNEY_MAP_ITEM.label}
