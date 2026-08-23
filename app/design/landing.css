@@ -848,6 +848,53 @@
   }
 }
 
+/* ---- Quest progress bar (/quest) ------------------------------
+   NEW CSS, not a reuse of .lp-trace-bar — .lp-trace-bar is a single
+   continuous scaleX-animated fill built for the DARK .lp-trace-panel (its
+   track colour is --lp-line-dark and its fill is a single mint bar with no
+   segment boundaries). The quest page's progress bar sits on the LIGHT
+   .lp-content-head/paper ground, and the task asks for a distinct "5
+   segments, some filled" bar rather than one continuous 0-100% fill — a
+   meaningfully different shape (discrete N-of-5 units, not a continuous
+   percentage), so scaleX's single-fill mechanic doesn't fit even with a
+   colour swap. Reuses the SAME token vocabulary as everything else instead:
+   --lp-line for the unfilled track (light-ground equivalent of
+   --lp-line-dark), --lp-mint for filled segments (same "done" colour as
+   .lp-step-mark[data-state="done"]), --lp-clip-br-sm on the end segments
+   only (same corner-cut language as .lp-field/.lp-verified), no
+   border-radius anywhere. */
+.lp .lp-quest-bar {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+}
+.lp .lp-quest-bar i {
+  display: block;
+  flex: 1 1 0;
+  height: 10px;
+  background: var(--lp-line);
+  transition: background var(--lp-dur-fast) ease;
+}
+.lp .lp-quest-bar i:first-child {
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+}
+.lp .lp-quest-bar i:last-child {
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+}
+.lp .lp-quest-bar i[data-filled="true"] {
+  background: var(--lp-mint);
+}
+.lp .lp-quest-count {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: var(--lp-sp-2);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--lp-ink-faint);
+  letter-spacing: 0.02em;
+}
+
 /* ---- Hero ----------------------------------------------------- */
 
 .lp .lp-hero {

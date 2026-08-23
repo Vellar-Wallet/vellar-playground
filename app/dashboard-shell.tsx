@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { href: "/catalog", label: "Catalog" },
   { href: "/status", label: "Status" },
   { href: "/console", label: "Console" },
+  { href: "/quest", label: "Quest" },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {
