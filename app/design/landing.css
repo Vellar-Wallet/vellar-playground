@@ -938,10 +938,13 @@
    commits to. A sticky bar under the page header, above Station 1, stays
    inside the existing content column and reuses the exact sticky + border
    + paper-ground recipe .lp-nav-outer already establishes — a vertical
-   sibling of that pattern, not a new one. Active-item highlighting still
-   uses scroll-spy (useScrollSpy, IntersectionObserver-based, see
-   lib/use-scroll-spy.ts) so the current station is genuinely tracked as
-   you scroll, not just on click. */
+   sibling of that pattern, not a new one. Real tabs now (both here and on
+   /bond) — one station's content visible at a time via a hidden tabpanel,
+   not a scroll-spy anchor bar (that's the earlier design; both consumers
+   converted away from it after user feedback that the anchor bar visually
+   read as tabs but never behaved like them). Sticky positioning is kept
+   because it's still useful on its own: the tab bar stays reachable while
+   scrolling a tall tab's content. */
 .lp .lp-stationnav {
   position: sticky;
   top: 0;
@@ -965,10 +968,11 @@
   transition:
     background var(--lp-dur-fast) ease,
     color var(--lp-dur-fast) ease;
-  /* Button-specific resets so the two element types render identically —
-     .lp-stationnav is used both for real anchor-based scroll-spy nav
-     (e.g. "/"'s StationNav) and, since bond/page.tsx's BondTabs, real
-     <button role="tab"> controls. */
+  /* Button resets — .lp-stationnav's tab controls are real <button
+     role="tab"> elements in both consumers ("/"'s StationTabs and
+     /bond's BondTabs); the `a` selector above stays only in case a future
+     consumer genuinely needs an anchor-based nav again, not because one
+     exists today. */
   background: none;
   border: 0;
   font: inherit;
@@ -984,18 +988,6 @@
 .lp .lp-stationnav button.active {
   background: var(--lp-mint);
   color: var(--lp-ink);
-}
-/* Keeps a jumped-to station/part's heading clear of the sticky nav bar
-   above it (roughly the bar's own height + its bottom margin) instead of
-   landing flush against the viewport top. Shared by "/"'s 3 stations and
-   "/bond"'s 3 parts — same .lp-stationnav bar, same fix. */
-#station-1,
-#station-2,
-#station-3,
-#bond-part-1,
-#bond-part-2,
-#bond-part-3 {
-  scroll-margin-top: var(--lp-sp-8);
 }
 @media (max-width: 900px) {
   /* Stick below .lp-topbar (also sticky at top:0 under this breakpoint)
@@ -1860,13 +1852,26 @@
 .lp .lp-fitem--raw .body {
   padding: 0 2px var(--lp-sp-3);
   max-width: none;
-  /* Hard ceiling on a single opened disclosure's own height. Paired with
+  /* .lp-fitem .body's base rule sets color: var(--lp-ink-soft) — a
+     translucent dark-green built for the paper-white FAQ-style
+     disclosures .lp-fitem is normally used for. .lp-fitem--raw sits on a
+     dark panel instead, and until now nothing overrode this inherited
+     color, so any element inside .body with no color of its own (e.g.
+     MonoRow's bare <b> value when no tone="ok"/"bad" is given) rendered
+     as dark, translucent green text on the same dark-green panel —
+     effectively illegible. Same on-dark substitution this file already
+     makes for .lp-step-row/.lp-step-note/.lp-mrow span for the identical
+     reason, just one level higher (the .body container itself, not a
+     specific child), so it covers every plain-text child by inheritance
+     rather than needing a rule per element.
+     Hard ceiling on a single opened disclosure's own height. Paired with
      the ledger's <details name="ledger-raw-bytes"> accordion grouping
      (only one row open at a time) so the panel's total growth is bounded
      in both directions — previously neither existed: every row was an
      independent <details> with no shared state (any number could be open
      at once) and no ancestor set any max-height, so the panel just grew to
      fit whatever was expanded, reported as "wildly increasing" in size. */
+  color: var(--lp-on-dark-soft);
   max-height: 260px;
   overflow-y: auto;
 }
@@ -1876,6 +1881,15 @@
 }
 .lp .lp-fitem--raw .body .lp-mrow span {
   color: var(--lp-on-dark-soft);
+}
+.lp .lp-fitem--raw .body .lp-mrow b {
+  color: var(--lp-on-dark);
+}
+.lp .lp-fitem--raw .body .lp-mrow b.ok {
+  color: var(--lp-mint);
+}
+.lp .lp-fitem--raw .body .lp-mrow b.bad {
+  color: #ff9d94; /* coral shifted for AA contrast against the dark panel — same reasoning as --lp-mint above for .ok, since #c2372b (the light-surface "bad" shade) is far too dark to read here */
 }
 
 /* ---- Platform cards ------------------------------------------- */

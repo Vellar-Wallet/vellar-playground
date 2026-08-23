@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cx, Eyebrow, Field, LpActionButton, MonoRow, MonoRows, TokenPill } from "../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
-import { useScrollSpy } from "@/lib/use-scroll-spy";
 import { FACILITATOR_URL, SELLER_URL } from "@/lib/config";
 import { isLocalOrPrivateResource } from "@/lib/catalog";
 import {
@@ -388,11 +387,12 @@ function parseStreamLine(line: string): Record<string, unknown> | null {
 }
 
 // ---------------------------------------------------------------------------
-// Station jump-nav — see landing.css's ".lp-stationnav" doc comment for why
-// this is a sticky sub-nav bar rather than a floating scroll-spy rail.
-// Rendered only once wallet.status === "ready" (Home's return, below):
-// before that, Station 1 is just the "Get started" wallet card and there is
-// nothing yet for Stations 2/3 to jump to.
+// Station tabs — real tabs (one station's content visible at a time via a
+// hidden tabpanel), not a scroll-spy jump-nav. See landing.css's
+// ".lp-stationnav" doc comment for why this is a sticky sub-nav bar rather
+// than a floating rail. Rendered only once wallet.status === "ready" (Home's
+// return, below): before that, there's just the wallet panel and nothing
+// yet for the three stations to switch between.
 // ---------------------------------------------------------------------------
 
 const STATIONS = [
@@ -401,15 +401,33 @@ const STATIONS = [
   { id: "station-3", label: "Break it" },
 ] as const;
 
-function StationNav() {
-  const activeId = useScrollSpy(STATIONS.map((s) => s.id));
+type StationId = (typeof STATIONS)[number]["id"];
 
+// Real tabs (one station visible at a time), not the scroll-spy jump-nav
+// this used to be -- same conversion already made for the bond page's
+// "part" nav, for the same reason: this bar visually presents as tabs
+// (pill buttons, an "active" highlight) but previously just scrolled to
+// an anchor while all three stations' full content stayed rendered
+// continuously underneath, one long unbroken scroll. Only the wallet
+// panel and catalog grid stay outside the tabbed area (see StationTabs'
+// call site in Home's return) -- everything else that was station-gated
+// content now lives inside its own hidden/visible tabpanel.
+function StationTabs({ activeId, onSelect }: { activeId: StationId; onSelect: (id: StationId) => void }) {
   return (
-    <nav className="lp-stationnav" aria-label="Jump to a station">
+    <nav className="lp-stationnav" role="tablist" aria-label="Guided demo stations">
       {STATIONS.map((station) => (
-        <a key={station.id} href={`#${station.id}`} className={cx(station.id === activeId && "active")}>
+        <button
+          key={station.id}
+          type="button"
+          role="tab"
+          id={`tab-${station.id}`}
+          aria-selected={station.id === activeId}
+          aria-controls={station.id}
+          className={cx(station.id === activeId && "active")}
+          onClick={() => onSelect(station.id)}
+        >
           {station.label}
-        </a>
+        </button>
       ))}
     </nav>
   );
@@ -428,6 +446,7 @@ export default function Home() {
   const [paymentAttacks, setPaymentAttacks] = useState<PaymentAttackStage>({ status: "idle" });
   const [catalogAttacks, setCatalogAttacks] = useState<CatalogAttackStage>({ status: "idle" });
   const [sanitizeDemo, setSanitizeDemo] = useState<SanitizeDemoState>({ status: "idle", input: "" });
+  const [activeStation, setActiveStation] = useState<StationId>("station-1");
 
   const walletElapsed = useElapsedSeconds(wallet.status === "loading" ? wallet.startedAt : null);
   const catalogElapsed = useElapsedSeconds(catalog.status === "loading" ? catalog.startedAt : null);
@@ -1314,48 +1333,64 @@ export default function Home() {
         </p>
       </div>
 
-      {/* ---- In-page jump nav — only once there's more than one station's
-          worth of content to jump between (see StationNav's doc comment). ---- */}
-      {wallet.status === "ready" && <StationNav />}
-
-      <div id="station-1">
-        <div className="lp-dgrid lp-dgrid--wide">
-          {/* ---- Wallet panel ---- */}
-          <div className="lp-dpanel">
-            <div className="lp-dpanel-head">
-              <h2>Your wallet</h2>
-            </div>
-            <WalletSection
-              wallet={wallet}
-              elapsed={walletElapsed}
-              onCreate={() => createWallet("button")}
-              copied={copied}
-              onCopy={async (pk) => {
-                await copyToClipboard(pk);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              }}
-              onStartFresh={startFresh}
-            />
+      {/* ---- Wallet panel — pinned above the tabs, always visible once a
+          wallet exists (or is being created), regardless of which station
+          tab is active. Previously lived inside Station 1's own block;
+          pulled out so switching to "Ownership verification" or "Break it"
+          doesn't hide your wallet/balance from view. The payment ledger
+          stays paired with it here too (it's this same panel row's other
+          half, and both only make sense together) — the catalog grid you
+          pay FROM, on the other hand, stays inside the "First payment" tab
+          below, since it's not needed once you're looking at the other two
+          tabs. ---- */}
+      <div className="lp-dgrid lp-dgrid--wide">
+        <div className="lp-dpanel">
+          <div className="lp-dpanel-head">
+            <h2>Your wallet</h2>
           </div>
-
-          {/* ---- Payment ledger panel (the cinematic moment) ---- */}
-          {wallet.status === "ready" && pay.status !== "idle" && (
-            <div className="lp-dpanel lp-dpanel--dark">
-              <PayLedger pay={pay} elapsed={payElapsed} onRetry={() => payForResource(pay.resourceUrl)} />
-            </div>
-          )}
+          <WalletSection
+            wallet={wallet}
+            elapsed={walletElapsed}
+            onCreate={() => createWallet("button")}
+            copied={copied}
+            onCopy={async (pk) => {
+              await copyToClipboard(pk);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }}
+            onStartFresh={startFresh}
+          />
         </div>
 
-        {/* ---- Catalog section — its OWN full-width block below the wallet
-            row, not squeezed into a column alongside it. The grid needs
-            real width to ever show more than one card per row; nested
-            inside the wallet/ledger two-column split, it never had room to
-            be more than a single stacked column no matter how the CSS
-            grid was written. Full-width and un-nested is what actually
-            lets .lp-dgrid's auto-fit columns do their job. */}
-        {wallet.status === "ready" && (
-          <div className="lp-dpanel lp-dpanel--lime" style={{ marginTop: "var(--lp-sp-6)" }}>
+        {wallet.status === "ready" && pay.status !== "idle" && (
+          <div className="lp-dpanel lp-dpanel--dark">
+            <PayLedger pay={pay} elapsed={payElapsed} onRetry={() => payForResource(pay.resourceUrl)} />
+          </div>
+        )}
+      </div>
+
+      {/* ---- Station tabs — real tabs (one station's content visible at a
+          time), not the scroll-spy jump-nav this used to be. Only appears
+          once there's more than one station's worth of content to switch
+          between (mirrors the old gate on StationNav). ---- */}
+      {wallet.status === "ready" && <StationTabs activeId={activeStation} onSelect={setActiveStation} />}
+
+      {wallet.status === "ready" && (
+        <div
+          id="station-1"
+          role="tabpanel"
+          aria-labelledby="tab-station-1"
+          hidden={activeStation !== "station-1"}
+          style={{ marginTop: "var(--lp-sp-xl)" }}
+        >
+          {/* ---- Catalog section — its OWN full-width block, not squeezed
+              into a column alongside the wallet. The grid needs real width
+              to ever show more than one card per row; nested inside a
+              two-column split, it never had room to be more than a single
+              stacked column no matter how the CSS grid was written.
+              Full-width and un-nested is what actually lets .lp-dgrid's
+              auto-fit columns do their job. */}
+          <div className="lp-dpanel lp-dpanel--lime">
             <CatalogSection
               catalog={catalog}
               elapsed={catalogElapsed}
@@ -1364,61 +1399,66 @@ export default function Home() {
               payBusy={pay.status === "paying"}
             />
           </div>
-        )}
 
-        {/* ---- Who is involved ---- */}
-        {wallet.status === "ready" && pay.status !== "idle" && (
-          <WhoIsInvolved publicKey={wallet.wallet.publicKey} pay={pay} />
-        )}
+          {/* ---- Who is involved ---- */}
+          {pay.status !== "idle" && <WhoIsInvolved publicKey={wallet.wallet.publicKey} pay={pay} />}
 
-        {/* ---- Run this on your machine ---- */}
-        {wallet.status === "ready" && pay.status !== "idle" && (
-          <RunOnYourMachine publicKey={wallet.wallet.publicKey} resourceUrl={pay.resourceUrl} />
-        )}
-      </div>
-
-      {/* ---- Station 2: ownership verification ----
-          PLACEMENT DECISION: below Station 1's payment ledger / "who is
-          involved" / "run this on your machine" — the natural next teaching
-          moment once a visitor has seen a 402 turn into a 200. Gated only on
-          `wallet.status === "ready"` (NOT on `pay.status !== "idle"`) —
-          unlike Station 1, this station teaches something about the
-          RESOURCE's durable, permanent verification state, which is true
-          regardless of whether this particular visitor has paid yet. A
-          visitor who never pays can still see the catalog entry, the
-          historical binding explanation, and run the live re-check. */}
-      {wallet.status === "ready" && (
-        <OwnershipSection
-          catalog={catalog}
-          ownership={ownership}
-          elapsed={ownershipElapsed}
-          onVerify={runVerifyOwnership}
-        />
+          {/* ---- Run this on your machine ---- */}
+          {pay.status !== "idle" && (
+            <RunOnYourMachine publicKey={wallet.wallet.publicKey} resourceUrl={pay.resourceUrl} />
+          )}
+        </div>
       )}
 
-      {/* ---- Station 2's own "Run this on your machine" footer ---- */}
-      {wallet.status === "ready" && <RunVerifyOnYourMachine />}
+      {/* ---- Station 2: ownership verification ----
+          This station teaches something about the RESOURCE's durable,
+          permanent verification state, which is true regardless of
+          whether this particular visitor has paid yet — a visitor who
+          never pays can still see the catalog entry, the historical
+          binding explanation, and run the live re-check. */}
+      {wallet.status === "ready" && (
+        <div
+          id="station-2"
+          role="tabpanel"
+          aria-labelledby="tab-station-2"
+          hidden={activeStation !== "station-2"}
+          style={{ marginTop: "var(--lp-sp-xl)" }}
+        >
+          <OwnershipSection
+            catalog={catalog}
+            ownership={ownership}
+            elapsed={ownershipElapsed}
+            onVerify={runVerifyOwnership}
+          />
+          <RunVerifyOnYourMachine />
+        </div>
+      )}
 
       {/* ---- Station 3: the attack bench ----
-          PLACEMENT DECISION: below Station 2, same reasoning — the natural
-          next teaching moment once a visitor has seen the facilitator
-          accept a real payment and confirm a real binding. Gated on
-          `wallet.status === "ready"` since the payment-attack track needs a
-          funded session wallet to arm the bench (same precondition as
-          Station 1); the catalog-attack track needs no session at all but
-          is kept in the same gated section for a consistent narrative
-          flow. */}
+          Gated on `wallet.status === "ready"` since the payment-attack
+          track needs a funded session wallet to arm the bench (same
+          precondition as Station 1); the catalog-attack track needs no
+          session at all but is kept in the same gated tab for a consistent
+          narrative flow. */}
       {wallet.status === "ready" && (
-        <AttackBenchSection
-          paymentAttacks={paymentAttacks}
-          catalogAttacks={catalogAttacks}
-          sanitizeDemo={sanitizeDemo}
-          paymentElapsed={paymentAttacksElapsed}
-          catalogElapsed={catalogAttacksElapsed}
-          onRunPaymentAttacks={runPaymentAttacks}
-          onRunCatalogAttacks={runCatalogAttacks}
-          onRunSanitizeDemo={runSanitizeDemo}
-        />
+        <div
+          id="station-3"
+          role="tabpanel"
+          aria-labelledby="tab-station-3"
+          hidden={activeStation !== "station-3"}
+          style={{ marginTop: "var(--lp-sp-xl)" }}
+        >
+          <AttackBenchSection
+            paymentAttacks={paymentAttacks}
+            catalogAttacks={catalogAttacks}
+            sanitizeDemo={sanitizeDemo}
+            paymentElapsed={paymentAttacksElapsed}
+            catalogElapsed={catalogAttacksElapsed}
+            onRunPaymentAttacks={runPaymentAttacks}
+            onRunCatalogAttacks={runCatalogAttacks}
+            onRunSanitizeDemo={runSanitizeDemo}
+          />
+        </div>
       )}
     </>
   );
@@ -2217,7 +2257,7 @@ function OwnershipSection({
   const busy = ownership.status === "checking";
 
   return (
-    <div id="station-2" style={{ marginTop: "var(--lp-sp-8)" }}>
+    <div>
       <Eyebrow>Station 2 — ownership verification</Eyebrow>
       <h2 style={{ marginTop: "var(--lp-sp-4)" }}>
         Once proven, <em>it can&apos;t be taken back.</em>
@@ -2675,7 +2715,7 @@ function AttackBenchSection({
       : initialCatalogAttackMap();
 
   return (
-    <div id="station-3" style={{ marginTop: "var(--lp-sp-8)" }}>
+    <div>
       <Eyebrow>Station 3 — the attack bench</Eyebrow>
       <h2 style={{ marginTop: "var(--lp-sp-4)" }}>
         Break it. <em>Watch it refuse to break.</em>
@@ -2804,7 +2844,12 @@ function AttackBenchSection({
               <div style={{ marginTop: "var(--lp-sp-4)" }}>
                 <p className="lp-lead">{catalogAttacks.message}</p>
                 <div className="lp-cta-row">
-                  <LpActionButton variant="ghost" size="sm" onClick={onRunCatalogAttacks}>
+                  {/* variant="outline" (dark ink on light), not "ghost"
+                      (white on dark) -- this card is .lp-dpanel--coral, a
+                      LIGHT peach tint, not a dark panel. "ghost" hardcodes
+                      white text/outline (see its own CSS comment: "On
+                      dark sections"), which was nearly invisible here. */}
+                  <LpActionButton variant="outline" size="sm" onClick={onRunCatalogAttacks}>
                     Try again
                   </LpActionButton>
                 </div>
@@ -2812,7 +2857,7 @@ function AttackBenchSection({
             )}
             {catalogAttacks.status === "done" && (
               <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-4)" }}>
-                <LpActionButton variant="ghost" size="sm" onClick={onRunCatalogAttacks}>
+                <LpActionButton variant="outline" size="sm" onClick={onRunCatalogAttacks}>
                   Run again
                 </LpActionButton>
               </div>
