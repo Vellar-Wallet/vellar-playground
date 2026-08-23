@@ -90,6 +90,12 @@
   --lp-cut-md: 28px;
   --lp-cut-lg: 44px;
   --lp-clip-br-sm: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+  /* Mirror of --lp-clip-br-sm — same 12px cut, bottom-LEFT corner instead
+     of bottom-right. Only .lp-side-link--bl (the topmost "Explore" sidebar
+     item) uses this; every other bottom-cut element in this app cuts the
+     bottom-right per the docs sidebar reference (see .lp-side-link's own
+     comment on why right-side cuts are the norm here). */
+  --lp-clip-bl-sm: polygon(0 0, 100% 0, 100% 100%, 12px 100%, 0 calc(100% - 12px));
   --lp-clip-tl-md: polygon(0 28px, 28px 0, 100% 0, 100% 100%, 0 100%);
   --lp-clip-br-md: polygon(0 0, 100% 0, 100% calc(100% - 28px), calc(100% - 28px) 100%, 0 100%);
   --lp-clip-tr-md: polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
@@ -810,6 +816,13 @@
   background: var(--lp-paper-tint);
   color: var(--lp-ink);
 }
+/* The topmost sidebar item ("Explore") only — cut bottom-LEFT instead of
+   bottom-right, a deliberate one-off distinguishing it from every other
+   nav item (which all cut bottom-right, matching the docs sidebar
+   reference — see .lp-side-link's own base rule above). */
+.lp .lp-side-link--bl {
+  clip-path: var(--lp-clip-bl-sm);
+}
 /* Active state — border-as-background + inset-fill ::before, same crisp-
    corner technique as .lp-sidebar above (a box-shadow border, the previous
    approach, follows the padding box rather than the clip-path and renders
@@ -834,6 +847,19 @@
     calc(100% - 1px) calc(100% - 13.41px),
     calc(100% - 13.41px) calc(100% - 1px),
     1px calc(100% - 1px)
+  );
+}
+/* Mirror of the active-state inset fill above, bottom-left instead of
+   bottom-right — same 1px-inset diagonal math (12px * sqrt(2) ~= 13.41px,
+   see this system's own border-as-background technique), just reflected
+   to match .lp-side-link--bl's own outer clip-path. */
+.lp .lp-side-link--bl.active::before {
+  clip-path: polygon(
+    1px 1px,
+    calc(100% - 1px) 1px,
+    calc(100% - 1px) calc(100% - 1px),
+    13.41px calc(100% - 1px),
+    1px calc(100% - 13.41px)
   );
 }
 .lp .lp-side-foot {

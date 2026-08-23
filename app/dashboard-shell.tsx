@@ -48,9 +48,12 @@ interface NavItem {
   label: string;
 }
 
-// "Journey map" (/) sits above every group, ungrouped — same top-of-sidebar
+// "Explore" (/) sits above every group, ungrouped — same top-of-sidebar
 // placement rail402's own reference screenshot uses for their landing page.
-const JOURNEY_MAP_ITEM: NavItem = { href: "/", label: "Journey map" };
+// Its label is "Explore", not "Journey map" — the page it links to is
+// still internally the journey map (route, doc comments, etc. all keep
+// that name; only the sidebar's own display text changed).
+const JOURNEY_MAP_ITEM: NavItem = { href: "/", label: "Explore" };
 
 const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
@@ -142,7 +145,11 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             <div className="lp-side-journey">
               <Link
                 href={JOURNEY_MAP_ITEM.href}
-                className={cx("lp-side-link", isActive(pathname, JOURNEY_MAP_ITEM.href) && "active")}
+                // lp-side-link--bl: this one item cuts its bottom-LEFT
+                // corner instead of bottom-right, deliberately distinct
+                // from every other nav item below it (see that class's own
+                // doc comment in landing.css).
+                className={cx("lp-side-link", "lp-side-link--bl", isActive(pathname, JOURNEY_MAP_ITEM.href) && "active")}
                 aria-current={isActive(pathname, JOURNEY_MAP_ITEM.href) ? "page" : undefined}
               >
                 {JOURNEY_MAP_ITEM.label}
