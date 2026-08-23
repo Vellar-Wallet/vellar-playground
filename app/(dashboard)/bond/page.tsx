@@ -377,7 +377,7 @@ export default function BondPage() {
         role="tabpanel"
         aria-labelledby="tab-bond-part-1"
         hidden={activeId !== "bond-part-1"}
-        style={{ marginTop: "var(--lp-sp-xl)" }}
+        style={{ marginTop: "var(--lp-sp-4)" }}
       >
         <Eyebrow>The problem</Eyebrow>
         <p className="lp-lead" style={{ marginTop: "var(--lp-sp-3)" }}>
@@ -396,7 +396,7 @@ export default function BondPage() {
         role="tabpanel"
         aria-labelledby="tab-bond-part-2"
         hidden={activeId !== "bond-part-2"}
-        style={{ marginTop: "var(--lp-sp-xl)" }}
+        style={{ marginTop: "var(--lp-sp-4)" }}
       >
         <Eyebrow>How it works</Eyebrow>
         <p className="lp-lead" style={{ marginTop: "var(--lp-sp-3)", marginBottom: "var(--lp-sp-6)" }}>
@@ -416,7 +416,7 @@ export default function BondPage() {
         role="tabpanel"
         aria-labelledby="tab-bond-part-3"
         hidden={activeId !== "bond-part-3"}
-        style={{ marginTop: "var(--lp-sp-xl)" }}
+        style={{ marginTop: "var(--lp-sp-4)" }}
       >
         <Eyebrow>What&apos;s live today vs what&apos;s coming</Eyebrow>
 

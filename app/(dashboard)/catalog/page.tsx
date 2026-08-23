@@ -4,8 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Eyebrow, LpActionButton } from "../../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
-import { readSession, writeLastCatalogSearch, writeSession } from "@/lib/local-storage";
+import { writeLastCatalogSearch } from "@/lib/local-storage";
 import { isLocalOrPrivateResource } from "@/lib/catalog";
+import { useWallet, WALLET_STEP_ORDER, WALLET_STEP_LABELS, type WalletStage, type WalletStepMap } from "@/lib/wallet-context";
 
 // ---------------------------------------------------------------------------
 // Types — live shapes verified by curl against the hosted facilitator (see
@@ -142,51 +143,6 @@ async function fetchJson(url: string): Promise<{ ok: boolean; body: unknown }> {
 // stricter React 19 purity lint (react-hooks/purity) forbids.
 const INITIAL_CATALOG_STAGE: CatalogStage = { status: "loading", startedAt: 0 };
 
-// ---------------------------------------------------------------------------
-// Wallet-creation step types — mirrors POST /api/session/create's NDJSON
-// events (see that route's own wire-format doc comment). Same shape as
-// app/(dashboard)/page.tsx's WalletSection/StepMap, duplicated here rather
-// than shared: this page renders it inline per a compact card-triggered flow
-// rather than a dedicated page section, and the task's own scoping keeps
-// this page self-contained (no new shared module for a one-page concern).
-// ---------------------------------------------------------------------------
-
-type WalletStepName = "keypair" | "friendbot" | "trustline" | "usdc_purchase";
-type WalletStepStatus = "pending" | "active" | "done" | "error" | "skipped";
-
-const WALLET_STEP_ORDER: WalletStepName[] = ["keypair", "friendbot", "trustline", "usdc_purchase"];
-const WALLET_STEP_LABELS: Record<WalletStepName, string> = {
-  keypair: "Generating your Stellar keypair",
-  friendbot: "Funding with testnet XLM",
-  trustline: "Opening USDC trustline",
-  usdc_purchase: "Buying testnet USDC",
-};
-
-type WalletStepMap = Record<WalletStepName, WalletStepStatus>;
-
-function initialWalletSteps(): WalletStepMap {
-  return { keypair: "pending", friendbot: "pending", trustline: "pending", usdc_purchase: "pending" };
-}
-
-interface WalletResult {
-  publicKey: string;
-  balanceXlm: string;
-  usdcProvisioned: boolean;
-  balanceUsdc?: string;
-}
-
-// One shared wallet-creation flow for the whole page (a session is global,
-// not per-card — there is only ever one wallet). `pendingResource` is the
-// "carry the intent forward" mechanism: it remembers which card's Pay button
-// triggered wallet creation, so the payment for THAT resource can kick off
-// automatically once the wallet finishes, without the user clicking Pay a
-// second time. See the effect below that watches `wallet.status === "ready"`.
-type WalletStage =
-  | { status: "idle" }
-  | { status: "loading"; startedAt: number; steps: WalletStepMap }
-  | { status: "ready"; wallet: WalletResult }
-  | { status: "error"; message: string; steps: WalletStepMap };
-
 function parseNdjsonLine(line: string): Record<string, unknown> | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
@@ -245,23 +201,29 @@ export default function CatalogPage() {
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<SearchStage>({ status: "idle" });
 
-  const [wallet, setWallet] = useState<WalletStage>({ status: "idle" });
-  // The resource whose Pay click triggered the CURRENTLY-DISPLAYED wallet
-  // flow — a state value (not just a ref) because it must survive across
-  // re-renders through every phase of that flow (loading -> ready/error) so
-  // the SAME card keeps showing the inline provisioning UI, the USDC-
-  // graceful-degradation message, or a wallet-creation error, rather than
-  // that state seeming to vanish once the fetch resolves. A plain ref would
-  // work for the "read it once at completion" carry-forward use (see the
-  // effect below, which still uses a ref for that one-shot consumption) but
-  // not for "keep rendering on the right card while wallet.status !=
-  // loading" — hence both exist, serving different purposes.
+  // Wallet state now lives in the shared context (lib/wallet-context.tsx) —
+  // one wallet for the whole app, not a page-local copy, so it survives
+  // navigating away and back (see that module's doc comment for why this
+  // page used to duplicate wallet-creation logic independently, and why
+  // that was the bug: this page and "/" could show two different wallets
+  // out of sync with each other before this).
+  const { wallet, elapsed: walletElapsed, createWallet } = useWallet();
+  // The resource whose Pay click triggered wallet creation THIS time — a
+  // state value (not just a ref) because it must survive across re-renders
+  // through every phase of that flow (loading -> ready/error) so the SAME
+  // card keeps showing the inline provisioning UI, the USDC-graceful-
+  // degradation message, or a wallet-creation error, rather than that state
+  // seeming to vanish once the fetch resolves. A plain ref would work for
+  // the "read it once at completion" carry-forward use (see the effect
+  // below, which still uses a ref for that one-shot consumption) but not
+  // for "keep rendering on the right card while wallet.status == loading"
+  // — hence both exist, serving different purposes. Since wallet state is
+  // now shared/global rather than page-local, this only matters for the
+  // FIRST-EVER creation on this page load — a wallet that's already
+  // "ready"/"cached" from a prior page never sets this at all (see
+  // handlePayClick below), so it's undefined outside a fresh in-page
+  // creation flow, same as before.
   const [walletFlowResource, setWalletFlowResource] = useState<string | null>(null);
-  // One-shot "auto-continue this resource's payment" signal, consumed by the
-  // effect below the instant wallet creation reaches "ready" with USDC
-  // provisioned. Kept as a ref (not state) since it is read-then-cleared
-  // inside that same effect and never needs to drive a render itself —
-  // `walletFlowResource` (state, above) is what drives what's ON SCREEN.
   const pendingResourceRef = useRef<string | null>(null);
 
   const [payState, setPayState] = useState<PayState>({});
@@ -289,7 +251,6 @@ export default function CatalogPage() {
     catalog.status === "loading" && catalog.startedAt > 0 ? catalog.startedAt : null,
   );
   const searchElapsed = useElapsedSeconds(search.status === "loading" ? search.startedAt : null);
-  const walletElapsed = useElapsedSeconds(wallet.status === "loading" ? wallet.startedAt : null);
 
   // useCallback (not a plain function-in-render-body) so react-hooks/purity
   // is satisfied that the first setState inside runs after an await, not
@@ -510,103 +471,18 @@ export default function CatalogPage() {
     }
   }, []);
 
-  // ---------------------------------------------------------------------
-  // Wallet creation — streams POST /api/session/create. Shared across the
-  // whole page (one wallet, not per-card). `resourceToPayAfter` is the
-  // "carry the intent forward" argument: the resource whose Pay click
-  // triggered this call, remembered in pendingResourceRef and consumed by
-  // the effect below once wallet creation reaches "ready".
-  // ---------------------------------------------------------------------
-  const createWallet = useCallback(async (resourceToPayAfter: string) => {
-    pendingResourceRef.current = resourceToPayAfter;
-    setWalletFlowResource(resourceToPayAfter);
-    const steps = initialWalletSteps();
-    setWallet({ status: "loading", startedAt: Date.now(), steps: { ...steps } });
-
-    try {
-      const res = await fetch("/api/session/create", { method: "POST" });
-      if (!res.ok || !res.body) {
-        setWallet({ status: "error", message: "We couldn't set up your wallet. Please try again.", steps: { ...steps } });
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let settled = false;
-
-      const handleComplete = (event: Record<string, unknown>) => {
-        settled = true;
-        if (event.status === "done" && event.result && typeof event.result === "object") {
-          const result = event.result as Partial<WalletResult>;
-          if (typeof result.publicKey === "string" && typeof result.balanceXlm === "string") {
-            const w: WalletResult = {
-              publicKey: result.publicKey,
-              balanceXlm: result.balanceXlm,
-              usdcProvisioned: Boolean(result.usdcProvisioned),
-              balanceUsdc: result.balanceUsdc,
-            };
-            // Only the existing non-secret StoredSession shape is written —
-            // see this task's security note and lib/local-storage.ts's own
-            // module doc comment.
-            writeSession({ publicKey: w.publicKey, balanceXlm: w.balanceXlm, balanceUsdc: w.balanceUsdc });
-            setWallet({ status: "ready", wallet: w });
-            return;
-          }
-        }
-        const message = typeof event.message === "string" ? event.message : "We couldn't set up your wallet. Please try again.";
-        setWallet((prev) => ({ status: "error", message, steps: prev.status === "loading" ? prev.steps : steps }));
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const event = parseNdjsonLine(line);
-          if (!event) continue;
-
-          if (event.step === "complete") {
-            handleComplete(event);
-            continue;
-          }
-
-          const step = event.step as string | undefined;
-          const status = event.status as string | undefined;
-          if (
-            WALLET_STEP_ORDER.includes(step as WalletStepName) &&
-            (status === "active" || status === "done" || status === "skipped" || status === "error")
-          ) {
-            setWallet((prev) => {
-              if (prev.status !== "loading") return prev;
-              return { ...prev, steps: { ...prev.steps, [step as WalletStepName]: status as WalletStepStatus } };
-            });
-          }
-        }
-      }
-
-      const trailing = parseNdjsonLine(buffer);
-      if (trailing?.step === "complete") handleComplete(trailing);
-
-      if (!settled) {
-        setWallet((prev) => ({
-          status: "error",
-          message: "The connection ended before your wallet finished setting up. Please try again.",
-          steps: prev.status === "loading" ? prev.steps : steps,
-        }));
-      }
-    } catch {
-      setWallet((prev) => ({
-        status: "error",
-        message: "We couldn't reach the server. Please check your connection and try again.",
-        steps: prev.status === "loading" ? prev.steps : steps,
-      }));
-    }
-  }, []);
+  // Wallet creation itself now lives in the shared context (`createWallet`,
+  // destructured above) — this page only owns the "which card's Pay click
+  // triggered it" carry-forward, so the SAME card that started provisioning
+  // keeps showing its progress, and its payment auto-continues once ready.
+  const createWalletForResource = useCallback(
+    (resourceToPayAfter: string) => {
+      pendingResourceRef.current = resourceToPayAfter;
+      setWalletFlowResource(resourceToPayAfter);
+      void createWallet("button");
+    },
+    [createWallet],
+  );
 
   // Carry-forward: once wallet creation lands on "ready", automatically
   // start the payment for whichever resource's Pay click triggered it — the
@@ -614,7 +490,11 @@ export default function CatalogPage() {
   // usdcProvisioned is true; the graceful-degradation case (XLM funded but
   // no USDC) is shown as a message instead (per the locked product
   // decision), with no automatic payment attempt, since there's no USDC to
-  // pay with.
+  // pay with. Does NOT fire for "cached" — a cached wallet is re-confirming
+  // in the background, not something this page itself triggered, so there's
+  // no pending resource to carry forward in that case (pendingResourceRef
+  // is only ever set by createWalletForResource above, right before an
+  // in-page-triggered creation).
   useEffect(() => {
     if (wallet.status !== "ready") return;
     const resourceUrl = pendingResourceRef.current;
@@ -627,13 +507,13 @@ export default function CatalogPage() {
 
   const handlePayClick = useCallback(
     (resourceUrl: string) => {
-      if (!readSession()) {
-        void createWallet(resourceUrl);
+      if (wallet.status === "idle") {
+        createWalletForResource(resourceUrl);
         return;
       }
       void payForResource(resourceUrl);
     },
-    [createWallet, payForResource],
+    [wallet.status, createWalletForResource, payForResource],
   );
 
   const isSearching = query.trim() !== "";
@@ -919,9 +799,9 @@ function CardPayArea({
     );
   }
 
-  // Graceful-degradation case: a wallet now exists (readSession() will find
-  // it next click) but USDC provisioning didn't complete, so there's no USDC
-  // to pay with. Same wording WalletSection uses on "/" for this exact case.
+  // Graceful-degradation case: a wallet now exists but USDC provisioning
+  // didn't complete, so there's no USDC to pay with. Same wording "/"'s
+  // wallet card uses for this exact case.
   if (walletPendingForThis && wallet.status === "ready" && !wallet.wallet.usdcProvisioned && !pay) {
     return (
       <p className="lp-lead" style={{ fontSize: "0.8rem" }}>

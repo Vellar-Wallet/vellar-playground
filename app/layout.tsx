@@ -2,9 +2,38 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./design/landing.css";
 
+// metadataBase anchors every relative URL below (openGraph/twitter images,
+// canonical) to an absolute one — required for link-preview unfurlers
+// (Slack, iMessage, Discord, X), which generally won't resolve a bare
+// relative path. This is the real deployed Vercel URL for this app.
+const SITE_URL = "https://vellar-playground.vercel.app";
+const SITE_DESCRIPTION = "Try the Vellar x402 payment facilitator, live, on Stellar testnet.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "Vellar Playground",
-  description: "Try the Vellar x402 payment facilitator, live, on Stellar testnet.",
+  description: SITE_DESCRIPTION,
+  // openGraph/twitter are the actual mechanism link-share unfurlers read —
+  // the plain `description` above only fills the HTML <meta
+  // name="description"> tag, which most chat apps/social previews ignore
+  // in favor of these. logo-mark.png as the preview image is a lightweight
+  // fallback rather than shipping a dedicated 1200x630 OG asset — better
+  // than the broken-image box an unfurler shows when no image is given at
+  // all.
+  openGraph: {
+    title: "Vellar Playground",
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    siteName: "Vellar Playground",
+    images: [{ url: "/logo-mark.png", width: 2000, height: 989, alt: "Vellar" }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Vellar Playground",
+    description: SITE_DESCRIPTION,
+    images: ["/logo-mark.png"],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

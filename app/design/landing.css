@@ -548,29 +548,169 @@
    keeps the label TRULY centered on the full header width regardless of
    the logo's own rendered width, not just centered in the leftover space
    next to it. */
+/* Left-aligned logo+label lockup, right-aligned wallet status pill — not the
+   earlier centered-label layout (a 3-column grid with a matching empty
+   spacer column standing in for the pill's future space). The wallet pill
+   now genuinely occupies that space instead of being reserved-but-empty, so
+   centering the label against it would need the pill's own width mirrored
+   on the left, which a logo lockup of fixed width can't do. Same
+   left-lockup/right-status header pattern rail402's own playground uses. */
 .lp .lp-page-header {
   height: 64px;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--lp-sp-4);
   padding-inline: var(--lp-gutter);
   background: var(--lp-paper);
   border-bottom: 1px solid var(--lp-line);
+}
+.lp .lp-page-brand-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lp-sp-3);
+  min-width: 0;
 }
 .lp .lp-page-brand {
   display: inline-flex;
   align-items: center;
   text-decoration: none;
   color: var(--lp-ink);
+  flex: none;
 }
 .lp .lp-page-brand-label {
-  grid-column: 2;
-  justify-self: center;
   font-family: var(--lp-display);
   font-weight: 700;
   font-size: 1.0625rem;
   letter-spacing: -0.01em;
   white-space: nowrap;
+}
+
+/* ---- Wallet status pill (header, right side) ------------------- */
+.lp .lp-wallet-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--lp-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.lp .lp-wallet-pill--empty {
+  padding: 6px 12px;
+  background: var(--lp-paper-tint);
+  color: var(--lp-ink-faint);
+  clip-path: var(--lp-clip-br-sm);
+  text-transform: lowercase;
+}
+.lp .lp-wallet-pill--details {
+  position: relative;
+}
+.lp .lp-wallet-pill--details summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--lp-line); /* the 1px border */
+  clip-path: var(--lp-clip-br-sm);
+  transition: background var(--lp-dur-fast) ease;
+}
+.lp .lp-wallet-pill--details summary::-webkit-details-marker {
+  display: none;
+}
+.lp .lp-wallet-pill--details summary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--lp-paper);
+  /* Border-as-background technique (see --lp-clip-br-md-in1's comment) —
+     inset by the border width (1px) on straight edges, and by w·√2
+     (1.41px) on the diagonal cut, so the 1px border renders as a crisp
+     uniform line all the way around the cut rather than a rotated-line
+     approximation. */
+  clip-path: polygon(
+    1px 1px,
+    calc(100% - 1px) 1px,
+    calc(100% - 1px) calc(100% - 12.41px),
+    calc(100% - 12.41px) calc(100% - 1px),
+    1px calc(100% - 1px)
+  );
+}
+.lp .lp-wallet-pill--details:hover summary {
+  background: var(--lp-line-strong);
+}
+.lp .lp-wallet-pill--details[open] summary {
+  background: var(--lp-ink);
+}
+.lp .lp-wallet-pill--details[open] summary::before {
+  background: var(--lp-ink);
+}
+.lp .lp-wallet-pill--details[open] summary .lp-wallet-pill-key,
+.lp .lp-wallet-pill--details[open] summary .lp-wallet-pill-balance {
+  color: var(--lp-on-dark);
+}
+.lp .lp-wallet-pill-key {
+  color: var(--lp-ink);
+}
+.lp .lp-wallet-pill-balance {
+  color: var(--lp-ink-faint);
+  font-weight: 500;
+}
+/* "cached" state — real data from a prior session, shown before this page
+   load's own background confirm has resolved. A quiet pulsing dot, not a
+   blocking spinner or an error tone: the data is real, just not yet
+   independently re-verified this load. */
+.lp .lp-wallet-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lp-sun);
+  animation: lp-step-pulse 1.1s var(--lp-ease-io) infinite;
+}
+.lp .lp-wallet-pill-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 220px;
+  background: var(--lp-line-strong); /* the 1px border */
+  clip-path: var(--lp-clip-br-sm);
+  padding: 1px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.lp .lp-wallet-pill-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  background: var(--lp-paper);
+  color: var(--lp-ink);
+  font-family: var(--lp-body);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  border: 0;
+  cursor: pointer;
+  transition: background var(--lp-dur-fast) ease, color var(--lp-dur-fast) ease;
+}
+.lp .lp-wallet-pill-menu-item:hover {
+  background: var(--lp-paper-tint);
+}
+.lp .lp-wallet-pill-menu-item:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.lp .lp-wallet-pill-disconnect {
+  color: #c2372b;
+}
+.lp .lp-wallet-pill-disconnect:hover {
+  background: var(--lp-coral-soft);
 }
 
 .lp .lp-shell {
@@ -635,6 +775,15 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+/* "Journey map" — ungrouped, sits above every labeled section (same
+   top-of-sidebar placement rail402's own reference uses for their landing
+   page). A bottom border instead of a small-caps group label distinguishes
+   it from the labeled sections below without needing a group heading for
+   a single item. */
+.lp .lp-side-journey {
+  padding-bottom: var(--lp-sp-4);
+  border-bottom: 1px solid var(--lp-line);
 }
 .lp .lp-side-link {
   position: relative;
@@ -747,6 +896,29 @@
 }
 .lp .lp-dpanel--span2 {
   grid-column: span 2;
+}
+/* Journey-map card (/, the landing/overview page) — a .lp-dpanel that's
+   also a real <Link>, so it needs its own hover/focus treatment on top of
+   the base card look (an <a> has no such affordance by default).
+   .lp-dpanel's own `background` IS the border color (border-as-background
+   technique — see --lp-clip-br-md-in1's comment); the actual visible fill
+   lives on its ::before via --panel-fill. Hover therefore has to retint
+   ::before, not the card's own background — setting `background` directly
+   here would repaint the BORDER, not the fill. */
+.lp .lp-journey-card {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+.lp .lp-journey-card::before {
+  transition: background var(--lp-dur-fast) ease;
+}
+.lp .lp-journey-card:hover::before {
+  background: var(--panel-fill, var(--lp-paper-tint));
+}
+.lp .lp-journey-card:focus-visible {
+  outline: 2px solid var(--lp-ink);
+  outline-offset: 2px;
 }
 /* Tint modifiers — same --panel-fill hook .lp-tile uses (--tile-fill), so
    a dashboard card can carry a section accent instead of defaulting to
