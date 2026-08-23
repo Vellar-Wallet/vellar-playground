@@ -11,6 +11,7 @@ import {
   readLastPayment,
   readQuestProgress,
   writeQuestLevel,
+  type StoredAttackResults,
   type StoredQuestProgress,
 } from "@/lib/local-storage";
 
@@ -348,8 +349,11 @@ function Level2Card({ proof, walletReady, l2check, onCheck }: { proof: string | 
 // Level 3 card — pure read of vellar.attackResults, no write anywhere.
 // ---------------------------------------------------------------------------
 
-function Level3Card() {
-  const [results] = useState(() => readAttackResults());
+// `results` comes from the parent (QuestPage already reads vellar.attackResults
+// correctly, in a mount effect — see the hydration note there) rather than this
+// component doing its own separate localStorage read, which would reintroduce
+// the exact same server/client mismatch a second time.
+function Level3Card({ results }: { results: StoredAttackResults }) {
   const passingEntry = Object.values(results).find((r) => r.passed && VALID_CHECK_METHODS.has(r.checkMethod));
   const done = Boolean(passingEntry);
 
@@ -554,9 +558,20 @@ function QuestRunOnYourMachine() {
 // ---------------------------------------------------------------------------
 
 export default function QuestPage() {
-  // Lazy initializer — a plain idempotent localStorage read, safe during
-  // render (same reasoning as RunOnYourMachine's fallback reads on `/`).
-  const [progress, setProgress] = useState<StoredQuestProgress>(() => readQuestProgress());
+  // NOT a lazy initializer reading localStorage: this page is server-rendered
+  // (the static shell) with no access to the browser's localStorage, so the
+  // server always "sees" an empty/false state. A lazy `useState(() =>
+  // readX())` initializer runs during the CLIENT's first render too — before
+  // hydration reconciles against the server HTML — so it would immediately
+  // read the real (non-empty) browser state and produce output that doesn't
+  // match what the server sent, a hydration mismatch (this is exactly what
+  // happened here: verifiedCount/aria-valuenow/data-filled all rendered "2"
+  // on the client vs the server's "0"). Every localStorage-derived value
+  // below starts at its server-matching empty default, then is populated
+  // inside a useEffect (client-only, runs after hydration) — the same
+  // pattern this app already uses correctly elsewhere (the wallet-restore
+  // effect on `/`, `useElapsedSeconds`).
+  const [progress, setProgress] = useState<StoredQuestProgress>({});
   const [horizon, setHorizon] = useState<HorizonCheck>({ status: "idle" });
   const [l2check, setL2check] = useState<L2Check>({ status: "idle" });
   const [l4check, setL4check] = useState<L4Check>({ status: "idle" });
@@ -650,12 +665,34 @@ export default function QuestPage() {
     return correct;
   }
 
-  const [walletReady] = useState(() => Boolean(readLastPayment()) || Boolean(readQuestProgress()[1]));
+  // Server-matching defaults (see the hydration note above `progress`) —
+  // populated for real in the mount effect below.
+  const [walletReady, setWalletReady] = useState(false);
+  const [attackResults, setAttackResults] = useState<StoredAttackResults>({});
 
-  // Level 3's own local read (no store write — see LEVEL 3 DESIGN DECISION
-  // above). Read once here too so the top progress bar can count it without
-  // Level3Card needing to lift its own state.
-  const [attackResults] = useState(() => readAttackResults());
+  // The one place all of this page's localStorage reads actually happen for
+  // the first time: after mount, i.e. after hydration has already reconciled
+  // the server's empty-state HTML against the client's identical first
+  // render. React re-renders with the real values immediately afterward —
+  // a normal client-side update, not a hydration mismatch, because by this
+  // point hydration is already done.
+  //
+  // The three setState calls are wrapped in `loadFromStorage` and invoked via
+  // `void loadFromStorage()` rather than called directly in the effect body —
+  // same convention as /status's `hasLoadedInitially` effect: react-hooks/
+  // purity's static analysis can't see into a called function to prove its
+  // setState calls are safe, so an unconditional direct call in the effect
+  // body itself trips "calling setState synchronously within an effect", even
+  // though this is a plain mount-once read with no external subscription.
+  useEffect(() => {
+    function loadFromStorage() {
+      setProgress(readQuestProgress());
+      setWalletReady(Boolean(readLastPayment()) || Boolean(readQuestProgress()[1]));
+      setAttackResults(readAttackResults());
+    }
+    loadFromStorage();
+  }, []);
+
   const level3Passed = Object.values(attackResults).some((r) => r.passed && VALID_CHECK_METHODS.has(r.checkMethod));
 
   const verifiedCount = computeVerifiedCount(progress, level3Passed);
@@ -676,7 +713,7 @@ export default function QuestPage() {
       <div className="lp-dgrid lp-dgrid--wide">
         <Level1Card proof={l1proof} horizon={horizon} onCheck={runHorizonCheck} />
         <Level2Card proof={l2proof} walletReady={walletReady} l2check={l2check} onCheck={runL2Check} />
-        <Level3Card />
+        <Level3Card results={attackResults} />
         <Level4Card stored={Boolean(progress[4]?.verified)} l4check={l4check} onCheck={runL4Check} />
         <Level5Card done={Boolean(progress[5]?.verified)} storedProof={progress[5]?.proof ?? null} onSubmit={handleL5Submit} />
       </div>
