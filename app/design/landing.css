@@ -1043,17 +1043,16 @@
   height: 22px;
   display: grid;
   place-items: center;
-  /* Plain square, deliberately NOT clip-cut — this is the one mark in the
-     whole system small enough (22px) that a diagonal corner cut has too
-     little room to render crisply: at this size the cut reads as a stray
-     "chipped" notch rather than a deliberate corner, in both the earlier
-     borderless version AND the border-as-background version tried after
-     it (screenshotted and reported broken both times). Every other
-     clip-cut mark in the system is 30px+ (.lp-rrow .ri, .lp-fitem summary
-     .pm) — .lp-step-mark is the outlier being asked to carry a treatment
-     built for boxes 35%+ larger. A plain square with a simple border is a
-     legitimate, deliberate alternative here, not a fallback.
-     Idle state: a subtle border + pale fill, quiet "not reached yet" cue. */
+  /* Plain square, deliberately NOT clip-cut — the first of what turned
+     into a standing rule for this system: small icon/toggle/mark boxes
+     (.lp-step-mark, .lp-rrow .ri, .lp-fitem summary .pm, .lp-fitem--raw
+     summary .pm) all read as "chipped"/unbalanced with a diagonal corner
+     cut at their size, so all of them dropped the cut in favor of a
+     plain square — this isn't a fallback, it's the deliberate small-mark
+     treatment now. The corner-cut motif stays for actual panels/cards/
+     buttons, which have real room for the cut to read as a shape rather
+     than a notch. Idle state here specifically: a subtle border + pale
+     fill, quiet "not reached yet" cue. */
   background: var(--lp-paper-tint);
   border: 1px solid var(--lp-line);
   font-size: 0.75rem;
@@ -1407,11 +1406,13 @@
   border-bottom: 0;
 }
 .lp .lp-rrow .ri {
+  /* Plain square, no corner cut -- per standing direction: small icon
+     marks in this system read as "chipped"/unbalanced at this size (see
+     .lp-step-mark's own doc comment for the same call). */
   width: 30px;
   height: 30px;
   flex: none;
   background: var(--lp-lime-soft);
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
 }
 .lp .lp-rrow:nth-child(2) .ri {
   background: var(--lp-sun-soft);
@@ -1837,12 +1838,14 @@
   color: var(--lp-on-dark);
 }
 .lp .lp-fitem--raw summary .pm {
+  /* Plain square, no corner cut -- per standing direction: small icon/
+     toggle marks in this system read as "chipped"/unbalanced at this
+     size (see .lp-step-mark's own doc comment for the same call). */
   width: 18px;
   height: 18px;
   font-size: 0.75rem;
   background: var(--lp-line-dark);
   color: var(--lp-on-dark);
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%);
   transition: transform var(--lp-dur-fast) ease, background var(--lp-dur-fast) ease, color var(--lp-dur-fast) ease;
 }
 /* Rotating the "+" glyph 45° reads as an "×" (close) once expanded — a
@@ -2184,6 +2187,10 @@
   color: var(--lp-forest);
 }
 .lp .lp-fitem summary .pm {
+  /* Plain square, no corner cut -- per standing direction: small icon/
+     toggle marks in this system read as "chipped"/unbalanced at this
+     size, not as a deliberate design element (same call already made for
+     .lp-step-mark and .lp-fitem--raw summary .pm below). */
   flex: none;
   width: 30px;
   height: 30px;
@@ -2193,11 +2200,7 @@
   font-size: 1.0625rem;
   font-weight: 700;
   line-height: 1;
-  /* optically center inside the cut shape (its visual centroid sits a
-     touch up-left of the box centre because of the corner cut) */
-  padding: 0 2px 2px 0;
   background: var(--lp-sun);
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
   transition: rotate var(--lp-dur-fast) var(--lp-ease-io);
 }
 .lp .lp-fitem[open] summary .pm {
