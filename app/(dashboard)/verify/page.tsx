@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { useEffect, useMemo, useState } from "react";
-import { Eyebrow, LpActionButton, MonoRow, MonoRows } from "../../design/ui";
+import { Eyebrow, LpActionButton, MonoRow, MonoRows, ScopeNotice } from "../../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 import {
@@ -390,7 +390,13 @@ export default function VerifyPage() {
           <div className="lp-dpanel-head">
             <h3>Verify now</h3>
           </div>
-          <p className="lp-lead" style={{ fontSize: "0.85rem" }}>
+          <ScopeNotice>
+            This page can&apos;t verify anything — it can only <em>check</em>. Clicking &quot;Verify now&quot; runs a
+            real, live comparison and shows you the real result, but it has no ability to mark a resource
+            &quot;Verified&quot; in the catalog. Only the facilitator&apos;s own background process can do that, on
+            its own schedule, after a real settlement.
+          </ScopeNotice>
+          <p className="lp-lead" style={{ fontSize: "0.85rem", marginTop: "var(--lp-sp-3)" }}>
             Checking <b>{selectedResource.label}</b>: the playground performs the same check the facilitator runs —
             fetching this resource&apos;s own 402 challenge and comparing the payTo it names against the bound
             address already on file.

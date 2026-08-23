@@ -98,6 +98,44 @@ export function PayUnverifiedConfirm({ onConfirm, size = "sm" }: { onConfirm: ()
   );
 }
 
+/**
+ * A hard, upfront "here is exactly what this page can and can't do"
+ * statement — bordered and visually set apart from surrounding body copy,
+ * not just another paragraph. Built for /verify's "Verify now" panel:
+ * running the live check there can genuinely confirm a payTo match, but
+ * it can NEVER make the facilitator's catalog say "Verified" — only a
+ * real settlement plus the facilitator's own background re-probe can (see
+ * /api/verify-ownership's own doc comment on that model). A user who
+ * clicked "Verify now" expecting the badge to flip and watched it not
+ * happen is the exact confusion this exists to head off — BEFORE they
+ * click, not buried in the result after.
+ *
+ * --lp-sun (this system's "pay attention" accent — CTAs, eyebrows), not
+ * --lp-coral (adversarial/attack accent elsewhere in this app): this is a
+ * scope boundary, not an error or a threat.
+ */
+export function ScopeNotice({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: "var(--lp-sp-3)",
+        padding: "var(--lp-sp-3)",
+        border: "1px solid var(--lp-sun)",
+        background: "var(--lp-sun-soft)",
+        color: "var(--lp-ink)",
+      }}
+    >
+      <span aria-hidden style={{ fontWeight: 700 }}>
+        ⚠
+      </span>
+      <p className="lp-lead" style={{ fontSize: "0.8rem", color: "var(--lp-ink-soft)" }}>
+        {children}
+      </p>
+    </div>
+  );
+}
+
 /** Button-element sibling of LpButton for in-app actions (onClick,
  *  disabled, submit). Same variants, same state matrix. */
 export function LpActionButton({
