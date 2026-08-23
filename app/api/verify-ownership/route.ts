@@ -419,7 +419,18 @@ export async function POST(req: Request): Promise<Response> {
           // unverified, waiting on its next re-probe). A payTo match here
           // means the check the facilitator would run WOULD pass; it's
           // simply not marked verified in the catalog yet.
-          verdictText = "Match — the seller's challenge names the bound address. This resource's own catalog state hasn't caught up to \"verified\" yet, but this live check confirms it would pass.";
+          //
+          // IMPORTANT, spelled out explicitly rather than implied: this
+          // route is read-only (see the module doc comment) — running it
+          // again can never be what flips ownershipState to "verified".
+          // Only a real settlement can do that (via /pay), and even then
+          // only once the facilitator's own cooldown on this resource has
+          // passed and its background re-probe actually runs.
+          verdictText =
+            "Match — the seller's challenge names the bound address. This resource's own catalog state hasn't " +
+            "caught up to \"verified\" yet, but this live check confirms it would pass. This check is read-only " +
+            "and can't cause that catalog update itself — only a real settlement (via Pay) can, and even then " +
+            "the facilitator re-verifies on its own schedule, not immediately.";
         } else {
           // A genuine mismatch is possible but not expected for any
           // resource on the known demo seller — handled honestly rather
