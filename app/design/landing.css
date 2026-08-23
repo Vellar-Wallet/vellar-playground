@@ -543,9 +543,15 @@
    (not a --lp-page-header-height custom property) since it's referenced
    only here and in the two .lp-shell/.lp-sidebar calc()s directly below —
    one clearly-commented number beats a token used in exactly three places. */
+/* Three-column grid — logo / centered label / equal-width spacer — rather
+   than flex + margin tricks: a matching empty column on the right is what
+   keeps the label TRULY centered on the full header width regardless of
+   the logo's own rendered width, not just centered in the leftover space
+   next to it. */
 .lp .lp-page-header {
   height: 64px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   padding-inline: var(--lp-gutter);
   background: var(--lp-paper);
@@ -554,11 +560,12 @@
 .lp .lp-page-brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
   text-decoration: none;
   color: var(--lp-ink);
 }
 .lp .lp-page-brand-label {
+  grid-column: 2;
+  justify-self: center;
   font-family: var(--lp-display);
   font-weight: 700;
   font-size: 1.0625rem;

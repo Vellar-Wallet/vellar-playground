@@ -12,9 +12,14 @@ import { cx } from "./design/ui";
 // wraps the six routes (/, /catalog, /status, /console, /quest, /bond).
 // Applied once via app/(dashboard)/layout.tsx rather than duplicated per page.
 //
-// Logo: vela-wallet's apps/web/public/logo-light.png, copied into this app's
-// public/ directory — see the task report for why this asset was chosen over
-// a text-only wordmark (it was readily portable, so no need to fall back).
+// Logo: vela-wallet's apps/web/public/logo-mark.png (the GREEN mark, for
+// light surfaces — per that repo's own design.md brand-asset note:
+// "logo-light.png (light mark, for dark surfaces), logo-mark.png (green
+// mark, for light surfaces)"). This header sits on the paper-white
+// background, a light surface, so logo-mark.png is the correct asset —
+// logo-light.png was the wrong one for this context (it's a pale mint
+// mark meant to sit on dark ink, which is why it read as an almost-
+// invisible ghost here).
 //
 // Grouping (restyled to match docs.vellar.xyz's small-caps grouped sidebar):
 // - PLAYGROUND — Wallet (/) and Catalog (/catalog): the interactive demo
@@ -75,10 +80,10 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           per the reference); the narrow/mobile variant keeps a short label
           next to it since there's no sidebar wordmark to rely on there. ---- */}
       <header className="lp-page-header">
-        <Link href="/" className="lp-page-brand">
-          <Image src="/logo-light.png" alt="Vellar" width={32} height={32} priority style={{ height: 32, width: "auto" }} />
-          <span className="lp-page-brand-label">Vellar Playground</span>
+        <Link href="/" className="lp-page-brand" aria-label="Vellar Playground — home">
+          <Image src="/logo-mark.png" alt="" width={32} height={32} priority style={{ height: 32, width: "auto" }} />
         </Link>
+        <span className="lp-page-brand-label">Vellar Playground</span>
       </header>
 
       <div className="lp-shell">
