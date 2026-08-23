@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { useEffect, useRef, useState } from "react";
-import { Eyebrow, LpActionButton, MonoRow, MonoRows } from "../../design/ui";
+import { Eyebrow, LpActionButton, MonoRow, MonoRows, PayUnverifiedConfirm } from "../../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 import { FACILITATOR_URL, SELLER_URL } from "@/lib/config";
@@ -463,6 +463,10 @@ function CatalogSection({
   payBusy: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // Resources sitting at the "confirm you want to pay an unverified
+  // resource" step (PayUnverifiedConfirm) — see that component's own doc
+  // comment for why this is a one-time confirm, not a payment gate.
+  const [confirmingUnverified, setConfirmingUnverified] = useState<Set<string>>(new Set());
   const allItems = catalog.status === "ready" ? catalog.items : [];
   const visibleItems = expanded ? allItems : allItems.slice(0, CATALOG_VISIBLE_COUNT);
   const hiddenCount = allItems.length - visibleItems.length;
@@ -519,10 +523,37 @@ function CatalogSection({
                       {trust.verified ? "✓ " : ""}
                       {trust.text}
                     </span>
-                    <LpActionButton variant="sun" size="sm" onClick={() => onPay(item.resource)} disabled={payBusy}>
-                      Pay →
-                    </LpActionButton>
+                    {!confirmingUnverified.has(item.resource) && (
+                      <LpActionButton
+                        variant="sun"
+                        size="sm"
+                        disabled={payBusy}
+                        onClick={() => {
+                          if (trust.verified) {
+                            onPay(item.resource);
+                            return;
+                          }
+                          setConfirmingUnverified((prev) => new Set(prev).add(item.resource));
+                        }}
+                      >
+                        Pay →
+                      </LpActionButton>
+                    )}
                   </div>
+                  {confirmingUnverified.has(item.resource) && (
+                    <div style={{ marginTop: "var(--lp-sp-3)" }}>
+                      <PayUnverifiedConfirm
+                        onConfirm={() => {
+                          setConfirmingUnverified((prev) => {
+                            const next = new Set(prev);
+                            next.delete(item.resource);
+                            return next;
+                          });
+                          onPay(item.resource);
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}

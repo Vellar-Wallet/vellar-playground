@@ -64,6 +64,40 @@ export function LpButton({
   );
 }
 
+/**
+ * A one-time "are you sure" step before paying an UNVERIFIED resource,
+ * shared by /pay and /catalog (both have their own independent pay flows
+ * over the same catalog data — this is the one piece of that flow worth
+ * sharing, so the warning wording/behavior can't drift between them).
+ *
+ * Deliberately NOT a payment gate — x402 never conditions payment on
+ * ownership verification (verification is a background trust signal
+ * checked AFTER settlement, not a precondition — see
+ * /api/verify-ownership's own doc comment on that model). This exists so
+ * a visitor isn't surprised paying "worked" against a resource whose
+ * catalog entry still reads "Unverified" — not to block anything a real
+ * x402 payment could do.
+ *
+ * Click-to-arm, not a modal: matches this system's inline-disclosure
+ * style elsewhere (raw-wire-bytes <details> panels, the needs_input param
+ * form on /catalog) rather than introducing a new interruption pattern.
+ */
+export function PayUnverifiedConfirm({ onConfirm, size = "sm" }: { onConfirm: () => void; size?: LpSize }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--lp-sp-2)" }}>
+      <p className="lp-lead" style={{ fontSize: "0.75rem" }}>
+        This resource&apos;s ownership binding hasn&apos;t been reconfirmed by the facilitator yet — your payment
+        will still settle for real either way; this only affects the trust badge.
+      </p>
+      <div className="lp-cta-row" style={{ marginTop: 0 }}>
+        <LpActionButton variant="sun" size={size} onClick={onConfirm}>
+          Pay anyway →
+        </LpActionButton>
+      </div>
+    </div>
+  );
+}
+
 /** Button-element sibling of LpButton for in-app actions (onClick,
  *  disabled, submit). Same variants, same state matrix. */
 export function LpActionButton({

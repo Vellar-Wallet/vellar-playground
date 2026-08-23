@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Eyebrow, LpActionButton } from "../../design/ui";
+import { Eyebrow, LpActionButton, PayUnverifiedConfirm } from "../../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 import { writeLastCatalogSearch } from "@/lib/local-storage";
@@ -732,6 +732,7 @@ function CatalogCard({
         wallet={wallet}
         walletElapsed={walletElapsed}
         pay={pay}
+        verified={badge.verified}
         paramValues={paramValues}
         onParamChange={onParamChange}
         onPayClick={onPayClick}
@@ -751,6 +752,7 @@ function CardPayArea({
   wallet,
   walletElapsed,
   pay,
+  verified,
   paramValues,
   onParamChange,
   onPayClick,
@@ -761,12 +763,20 @@ function CardPayArea({
   wallet: WalletStage;
   walletElapsed: number;
   pay: PayCardState | undefined;
+  verified: boolean;
   paramValues: Record<string, string>;
   onParamChange: (key: string, value: string) => void;
   onPayClick: () => void;
   onRetryPay: () => void;
   onSubmitParams: () => void;
 }) {
+  // Own state, not lifted to the parent: unlike /pay's catalog grid (one
+  // shared confirm Set, since /pay never re-renders per card on payment
+  // state), each CatalogCard here is already its own independent
+  // component instance keyed by resource — a local toggle is simplest and
+  // naturally resets if this card unmounts (e.g. a search re-filters it
+  // out). See PayUnverifiedConfirm's own doc comment for why this exists.
+  const [confirmingUnverified, setConfirmingUnverified] = useState(false);
   // 1. This card is the one that triggered wallet creation, and it's still
   // in flight — show the inline provisioning flow right here, per the
   // locked "no navigation away from /catalog" decision.
@@ -899,10 +909,17 @@ function CardPayArea({
     );
   }
 
-  // 5. Idle — the default state.
+  // 5. Idle — the default state. Unverified resources get a one-time
+  // confirm step first (PayUnverifiedConfirm) rather than paying
+  // immediately — see that component's own doc comment for why this is a
+  // notice, not a payment gate.
+  if (confirmingUnverified) {
+    return <PayUnverifiedConfirm onConfirm={onPayClick} size="sm" />;
+  }
+
   return (
     <div className="lp-cta-row" style={{ marginTop: 0 }}>
-      <LpActionButton variant="sun" size="sm" onClick={onPayClick}>
+      <LpActionButton variant="sun" size="sm" onClick={() => (verified ? onPayClick() : setConfirmingUnverified(true))}>
         Pay →
       </LpActionButton>
     </div>
