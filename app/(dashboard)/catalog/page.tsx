@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Eyebrow, LpActionButton } from "../../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
+import { writeLastCatalogSearch } from "@/lib/local-storage";
 
 // ---------------------------------------------------------------------------
 // Types — live shapes verified by curl against the hosted facilitator (see
@@ -129,7 +130,12 @@ export default function CatalogPage() {
         return;
       }
       const partialResults = Boolean((body as { partialResults?: boolean })?.partialResults);
-      setSearch({ status: "ready", items: normalizeItems(body), partialResults });
+      const items = normalizeItems(body);
+      setSearch({ status: "ready", items, partialResults });
+      // Written as a side effect of a completed search — for later use on
+      // /catalog (per this task's scoping, no read/restore UI is built yet;
+      // this just confirms the write path works). See lib/local-storage.ts.
+      writeLastCatalogSearch({ query: q, results: items });
     } catch {
       setSearch({
         status: "error",

@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Eyebrow, Field, LpActionButton, MonoRow, MonoRows, TokenPill } from "../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 import { FACILITATOR_URL, SELLER_URL } from "@/lib/config";
+import {
+  clearAll,
+  readLastPayment,
+  readSession,
+  writeLastPayment,
+  writeQuestProgress,
+  writeSession,
+} from "@/lib/local-storage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +47,12 @@ function initialSteps(): StepMap {
 
 type WalletStage =
   | { status: "idle" }
+  // "restoring" — a briefer, more honest framing than the full 4-step
+  // animation for the case where vellar.session (a localStorage display
+  // cache) indicates a returning visitor. See createWallet()'s doc comment
+  // for why this still calls the same POST /api/session/create the "Get
+  // started" button calls, rather than trusting the cached data as truth.
+  | { status: "restoring" }
   | { status: "loading"; startedAt: number; steps: StepMap }
   | { status: "ready"; wallet: WalletState }
   | { status: "error"; message: string; steps: StepMap };
@@ -211,13 +225,36 @@ export default function Home() {
     }
   }, [wallet.status]);
 
-  async function createWallet() {
+  /** Persists the freshest known wallet display data to vellar.session.
+   *  Deliberately excludes usdcProvisioned (not part of StoredSession) and
+   *  never touches secretKey (WalletState has no such field to begin with —
+   *  see the module doc comment on lib/local-storage.ts). */
+  function persistSession(w: WalletState) {
+    writeSession({ publicKey: w.publicKey, balanceXlm: w.balanceXlm, balanceUsdc: w.balanceUsdc });
+  }
+
+  // useCallback (not a plain function declaration) so the restore-on-mount
+  // effect below can depend on it honestly, same pattern
+  // app/(dashboard)/catalog/page.tsx already uses for loadCatalog/runSearch.
+  const createWallet = useCallback(async (mode: "button" | "restore" = "button") => {
     const steps = initialSteps();
-    setWallet({ status: "loading", startedAt: Date.now(), steps: { ...steps } });
+    if (mode === "restore") {
+      setWallet({ status: "restoring" });
+    } else {
+      setWallet({ status: "loading", startedAt: Date.now(), steps: { ...steps } });
+    }
 
     try {
       const res = await fetch("/api/session/create", { method: "POST" });
       if (!res.ok || !res.body) {
+        if (mode === "restore") {
+          // A restore attempt failing should fall back to the normal idle
+          // "Get started" state, not an error screen — the user never
+          // explicitly asked for anything this visit; only vellar.session's
+          // mere presence triggered this.
+          setWallet({ status: "idle" });
+          return;
+        }
         setWallet({
           status: "error",
           message: "We couldn't set up your wallet. Please try again.",
@@ -253,20 +290,25 @@ export default function Home() {
             if (status === "done" && event.result && typeof event.result === "object") {
               const result = event.result as Partial<WalletState>;
               if (typeof result.publicKey === "string" && typeof result.balanceXlm === "string") {
-                setWallet({
-                  status: "ready",
-                  wallet: {
-                    publicKey: result.publicKey,
-                    balanceXlm: result.balanceXlm,
-                    usdcProvisioned: Boolean(result.usdcProvisioned),
-                    balanceUsdc: result.balanceUsdc,
-                  },
-                });
+                const w: WalletState = {
+                  publicKey: result.publicKey,
+                  balanceXlm: result.balanceXlm,
+                  usdcProvisioned: Boolean(result.usdcProvisioned),
+                  balanceUsdc: result.balanceUsdc,
+                };
+                persistSession(w);
+                setWallet({ status: "ready", wallet: w });
                 continue;
               }
             }
             const message =
               typeof event.message === "string" ? event.message : "We couldn't set up your wallet. Please try again.";
+            if (mode === "restore") {
+              // Same reasoning as the fetch-failure branch above — a failed
+              // restore falls back to idle, not an error screen.
+              setWallet({ status: "idle" });
+              continue;
+            }
             setWallet((prev) => ({
               status: "error",
               message,
@@ -294,15 +336,14 @@ export default function Home() {
         if (status === "done" && trailing.result && typeof trailing.result === "object") {
           const result = trailing.result as Partial<WalletState>;
           if (typeof result.publicKey === "string" && typeof result.balanceXlm === "string") {
-            setWallet({
-              status: "ready",
-              wallet: {
-                publicKey: result.publicKey,
-                balanceXlm: result.balanceXlm,
-                usdcProvisioned: Boolean(result.usdcProvisioned),
-                balanceUsdc: result.balanceUsdc,
-              },
-            });
+            const w: WalletState = {
+              publicKey: result.publicKey,
+              balanceXlm: result.balanceXlm,
+              usdcProvisioned: Boolean(result.usdcProvisioned),
+              balanceUsdc: result.balanceUsdc,
+            };
+            persistSession(w);
+            setWallet({ status: "ready", wallet: w });
           }
         }
       }
@@ -311,20 +352,49 @@ export default function Home() {
         // The stream ended (network hiccup, server crash mid-stream) without
         // ever reaching a "complete" event — treat as an honest failure
         // rather than leaving the UI stuck mid-progress.
+        if (mode === "restore") {
+          setWallet({ status: "idle" });
+        } else {
+          setWallet((prev) => ({
+            status: "error",
+            message: "The connection ended before your wallet finished setting up. Please try again.",
+            steps: prev.status === "loading" ? prev.steps : steps,
+          }));
+        }
+      }
+    } catch {
+      if (mode === "restore") {
+        setWallet({ status: "idle" });
+      } else {
         setWallet((prev) => ({
           status: "error",
-          message: "The connection ended before your wallet finished setting up. Please try again.",
+          message: "We couldn't reach the server. Please check your connection and try again.",
           steps: prev.status === "loading" ? prev.steps : steps,
         }));
       }
-    } catch {
-      setWallet((prev) => ({
-        status: "error",
-        message: "We couldn't reach the server. Please check your connection and try again.",
-        steps: prev.status === "loading" ? prev.steps : steps,
-      }));
     }
-  }
+  }, []);
+
+  // ---------------------------------------------------------------------
+  // Restore-on-mount — DESIGN DECISION (see task report for full reasoning):
+  // vellar.session is a localStorage DISPLAY CACHE, not an authority — the
+  // encrypted server-side cookie is the real source of truth for whether a
+  // wallet still exists. So on mount, if vellar.session has data, this fires
+  // the SAME POST /api/session/create the "Get started" button fires,
+  // letting the server's own existing fast-path (valid cookie -> instant
+  // complete event) decide whether to reuse or mint fresh. The only
+  // difference from a fresh visit is framing: "Restoring your session..."
+  // rather than the full 4-step provisioning animation, since a returning
+  // visitor's case is (almost always) an instant fast-path response, and
+  // showing "Generating your Stellar keypair..." for something that isn't
+  // happening would be dishonest UI.
+  const attemptedRestore = useRef(false);
+  useEffect(() => {
+    if (!attemptedRestore.current && readSession()) {
+      attemptedRestore.current = true;
+      void createWallet("restore");
+    }
+  }, [createWallet]);
 
   async function loadCatalog() {
     setCatalog({ status: "loading", startedAt: Date.now() });
@@ -355,6 +425,58 @@ export default function Home() {
       wakingUpSince: null,
     });
 
+    // Tracks the most recent "verify" step's real paymentPayload as events
+    // stream in, so it's available at "complete" time for vellar.lastPayment
+    // — the real signed payload already flowing through the ledger, not a
+    // reconstruction. Reset per retry (a whole-flow retry produces a fresh
+    // signed payload — see the "retry" event handling below).
+    let latestPaymentPayload: unknown = undefined;
+
+    /** Side effects once a payment genuinely completes (status "done"):
+     *  1. vellar.lastPayment — the real settlementTx/paymentPayload/etc.
+     *  2. vellar.session's balance — via a fresh GET /api/session read
+     *     (see DESIGN DECISION doc comment above persistSession-adjacent
+     *     code: chosen over client-side subtracting the payment amount,
+     *     since a fresh server read is real on-chain truth, not a fragile
+     *     local computation).
+     *  3. vellar.questProgress — marks "station-1" (this six-step ledger /
+     *     first payment) complete. Key name chosen now so Station 2/3 can
+     *     agree on the same convention later; no UI reads this yet.
+     */
+    async function persistPaymentCompletion(result: PayCompleteResult) {
+      writeLastPayment({
+        settlementTx: result.settlementTx,
+        paymentPayload: latestPaymentPayload,
+        sellerUrl: resourceUrl,
+        amount: result.amount ?? "",
+        timestamp: Date.now(),
+      });
+      writeQuestProgress("station-1", true);
+
+      try {
+        const res = await fetch("/api/session");
+        if (res.ok) {
+          const body = (await res.json()) as { publicKey?: string; balanceXlm?: string };
+          if (typeof body.publicKey === "string" && typeof body.balanceXlm === "string") {
+            // Preserve the last-known USDC balance display data (GET
+            // /api/session doesn't report it — only balanceXlm — so a full
+            // fresh USDC read isn't available here without a second call;
+            // XLM is what actually changed from network fees, and USDC is
+            // refreshed on the next full session-create fast-path anyway).
+            const prevStored = readSession();
+            writeSession({
+              publicKey: body.publicKey,
+              balanceXlm: body.balanceXlm,
+              balanceUsdc: prevStored?.publicKey === body.publicKey ? prevStored.balanceUsdc : undefined,
+            });
+          }
+        }
+      } catch {
+        // Best-effort balance refresh — a failure here shouldn't affect the
+        // payment's own already-successful outcome.
+      }
+    }
+
     /** Applies one parsed ledger event to the in-flight PayStage, whatever
      *  its current shape (paying only — once success/error lands we stop
      *  mutating). Returns the new PayStage the caller should setState to,
@@ -374,6 +496,9 @@ export default function Home() {
         // just 3-5 (a retry genuinely redoes the GET too).
         const maxAttempts = typeof event.maxAttempts === "number" ? event.maxAttempts : prev.maxAttempts;
         const attempt = typeof event.attempt === "number" ? event.attempt : prev.attempt + 1;
+        // A retry re-signs from scratch — the previous attempt's payload is
+        // no longer the one that (maybe) settles, so drop it.
+        latestPaymentPayload = undefined;
         return { ...prev, steps: initialLedgerSteps(), attempt, maxAttempts, wakingUp: false, wakingUpSince: null };
       }
 
@@ -381,6 +506,12 @@ export default function Home() {
         const stepName = event.step as LedgerStepName;
         const status = event.status;
         if (status !== "active" && status !== "done" && status !== "error") return prev;
+        // Capture the real signed payload as it flows through the ledger —
+        // used at "complete" time for vellar.lastPayment (see
+        // persistPaymentCompletion above).
+        if (stepName === "verify" && status === "done" && "paymentPayload" in event) {
+          latestPaymentPayload = event.paymentPayload;
+        }
         // A "done"/"error" on get_request clears any "waking up" framing —
         // the seller has genuinely responded by then.
         const clearsWakingUp = stepName === "get_request" && status !== "active";
@@ -440,17 +571,19 @@ export default function Home() {
             if (event.status === "done" && event.result && typeof event.result === "object") {
               const result = event.result as Partial<PayCompleteResult>;
               if (typeof result.settlementTx === "string") {
+                const completeResult: PayCompleteResult = {
+                  settlementTx: result.settlementTx,
+                  payer: result.payer,
+                  network: result.network,
+                  amount: result.amount,
+                  asset: result.asset,
+                  payTo: result.payTo,
+                  attempts: typeof result.attempts === "number" ? result.attempts : 1,
+                };
+                void persistPaymentCompletion(completeResult);
                 setPay((prev) => ({
                   status: "success",
-                  result: {
-                    settlementTx: result.settlementTx!,
-                    payer: result.payer,
-                    network: result.network,
-                    amount: result.amount,
-                    asset: result.asset,
-                    payTo: result.payTo,
-                    attempts: typeof result.attempts === "number" ? result.attempts : 1,
-                  },
+                  result: completeResult,
                   resourceUrl,
                   steps: prev.status === "paying" ? prev.steps : steps,
                   attempt: prev.status === "paying" ? prev.attempt : 1,
@@ -479,17 +612,19 @@ export default function Home() {
         if (trailing.status === "done" && trailing.result && typeof trailing.result === "object") {
           const result = trailing.result as Partial<PayCompleteResult>;
           if (typeof result.settlementTx === "string") {
+            const completeResult: PayCompleteResult = {
+              settlementTx: result.settlementTx,
+              payer: result.payer,
+              network: result.network,
+              amount: result.amount,
+              asset: result.asset,
+              payTo: result.payTo,
+              attempts: typeof result.attempts === "number" ? result.attempts : 1,
+            };
+            void persistPaymentCompletion(completeResult);
             setPay((prev) => ({
               status: "success",
-              result: {
-                settlementTx: result.settlementTx!,
-                payer: result.payer,
-                network: result.network,
-                amount: result.amount,
-                asset: result.asset,
-                payTo: result.payTo,
-                attempts: typeof result.attempts === "number" ? result.attempts : 1,
-              },
+              result: completeResult,
               resourceUrl,
               steps: prev.status === "paying" ? prev.steps : steps,
               attempt: prev.status === "paying" ? prev.attempt : 1,
@@ -518,6 +653,35 @@ export default function Home() {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Start fresh — discards the server-side session cookie (the real source
+  // of truth for the secret key) via DELETE /api/session, clears every
+  // vellar.* localStorage key, then resets this page's in-memory React
+  // state back to its initial idle shape.
+  //
+  // DESIGN DECISION: in-memory reset chosen over a simpler "just reload the
+  // page" — wiring the reset across wallet/catalog/pay state turned out to
+  // be a handful of setState calls, not awkward enough to justify a full
+  // reload; this way "Start fresh" feels instant (no white-flash reload)
+  // and stays consistent with the rest of this page's live, no-reload
+  // philosophy (streamed wallet creation, streamed payments).
+  async function startFresh() {
+    try {
+      await fetch("/api/session", { method: "DELETE" });
+    } catch {
+      // Best-effort — even if the network call fails, still clear local
+      // state below so the UI reflects "start fresh" was requested. A
+      // failed DELETE leaves the server cookie in place, but it will
+      // simply be reused next time (no user-visible harm beyond that).
+    }
+    clearAll();
+    setWallet({ status: "idle" });
+    setCatalog({ status: "idle" });
+    setPay({ status: "idle" });
+    setCopied(false);
+    fetchedForWallet.current = false;
+  }
+
   return (
     <>
       <div className="lp-content-head">
@@ -539,13 +703,14 @@ export default function Home() {
           <WalletSection
             wallet={wallet}
             elapsed={walletElapsed}
-            onCreate={createWallet}
+            onCreate={() => createWallet("button")}
             copied={copied}
             onCopy={async (pk) => {
               await copyToClipboard(pk);
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
             }}
+            onStartFresh={startFresh}
           />
         </div>
 
@@ -617,12 +782,14 @@ function WalletSection({
   onCreate,
   copied,
   onCopy,
+  onStartFresh,
 }: {
   wallet: WalletStage;
   elapsed: number;
   onCreate: () => void;
   copied: boolean;
   onCopy: (pk: string) => void;
+  onStartFresh: () => void;
 }) {
   if (wallet.status === "idle") {
     return (
@@ -631,6 +798,14 @@ function WalletSection({
           Get started →
         </LpActionButton>
       </div>
+    );
+  }
+
+  if (wallet.status === "restoring") {
+    return (
+      <p className="lp-lead" style={{ fontSize: "0.9rem" }}>
+        Restoring your session...
+      </p>
     );
   }
 
@@ -707,6 +882,11 @@ function WalletSection({
           yet.
         </p>
       )}
+      <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-2)" }}>
+        <LpActionButton variant="outline" size="sm" onClick={onStartFresh}>
+          Start fresh
+        </LpActionButton>
+      </div>
     </div>
   );
 }
@@ -1062,25 +1242,66 @@ function WhoIsInvolved({ publicKey, pay }: { publicKey: string; pay: PayStage })
 // one-line explanation, rather than a fabricated value. The curl tab CAN be
 // fully real (it only demonstrates the unpaid GET -> 402, the same step 1
 // this page already showed happening), so it substitutes the real seller URL.
+//
+// REUSABILITY REFACTOR (see task report for full reasoning): this component
+// used to require {publicKey, resourceUrl} as props, sourced from the home
+// page's own live wallet/pay state — which meant it could only ever render
+// on a page where a payment had just happened live, in the same session.
+// Both props are now OPTIONAL: when a caller has live data in hand (this
+// page, right after a payment), it can still pass them directly, same as
+// before. When omitted, the component reads vellar.lastPayment (for
+// resourceUrl) and vellar.session (for publicKey) via lib/local-storage.ts
+// directly — so it can be dropped onto any other page with no props at all
+// and still render meaningfully from a PRIOR payment made in this browser,
+// not just a live one. If vellar.lastPayment is empty (no payment has ever
+// happened in this browser), it renders a "make a payment first" empty
+// state instead of broken/blank output — same tone as this app's other
+// empty states (e.g. /catalog's "No resources are cataloged yet.").
 
-function RunOnYourMachine({ publicKey, resourceUrl }: { publicKey: string; resourceUrl: string }) {
+function RunOnYourMachine({ publicKey, resourceUrl }: { publicKey?: string; resourceUrl?: string }) {
   const [tab, setTab] = useState<"cli" | "curl">("cli");
   const [copiedSnippet, setCopiedSnippet] = useState(false);
 
+  // Lazy initializers — a plain, idempotent localStorage read with no side
+  // effects, safe to run during render (same reasoning React's own docs give
+  // for lazy useState initializers; this never mutates storage, only reads
+  // it). Falls back to localStorage only when the caller didn't pass a prop,
+  // so a caller with live data always wins.
+  const [fallbackPayment] = useState(() => (resourceUrl ? null : readLastPayment()));
+  const [fallbackSession] = useState(() => (publicKey ? null : readSession()));
+
+  const effectiveResourceUrl = resourceUrl ?? fallbackPayment?.sellerUrl;
+  const effectivePublicKey = publicKey ?? fallbackSession?.publicKey;
+
+  if (!effectiveResourceUrl) {
+    return (
+      <div style={{ marginTop: "var(--lp-sp-8)" }}>
+        <Eyebrow>Run this on your machine</Eyebrow>
+        <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)" }}>
+          Make a payment first — once you&apos;ve paid a resource, its CLI and curl snippets will show up
+          here.
+        </p>
+      </div>
+    );
+  }
+
   const cliSnippet = [
     "# Buyer (classic keypair) — from vellar-facilitator/examples/buyer-classic.mjs",
-    `RESOURCE_URL=${resourceUrl} \\`,
+    `RESOURCE_URL=${effectiveResourceUrl} \\`,
     "PAYER_SECRET=<your own testnet secret key here> \\",
     "node buyer-classic.mjs",
     "",
     "# Note: PAYER_SECRET can't be pre-filled with this session's real key —",
     "# the playground's session key stays server-side by design and is never",
-    `# sent to the browser. Your session's public key is ${truncateMiddle(publicKey, 10, 6)}.`,
+    `# sent to the browser.${effectivePublicKey ? ` Your session's public key is ${truncateMiddle(effectivePublicKey, 10, 6)}.` : ""}`,
   ].join("\n");
 
-  const curlSnippet = [`curl -i ${resourceUrl}`, "", "# Expect: HTTP/1.1 402 Payment Required", "# with a PAYMENT-REQUIRED header (base64-encoded challenge)."].join(
-    "\n",
-  );
+  const curlSnippet = [
+    `curl -i ${effectiveResourceUrl}`,
+    "",
+    "# Expect: HTTP/1.1 402 Payment Required",
+    "# with a PAYMENT-REQUIRED header (base64-encoded challenge).",
+  ].join("\n");
 
   const snippet = tab === "cli" ? cliSnippet : curlSnippet;
 
