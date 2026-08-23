@@ -66,62 +66,70 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <div className="lp-shell">
-      {/* ---- Desktop sidebar (>900px) ---- */}
-      <aside className="lp-sidebar" aria-label="Dashboard navigation">
-        <Link href="/" className="lp-side-brand">
-          <Image src="/logo-light.png" alt="" width={28} height={28} priority style={{ height: 28, width: "auto" }} />
-          <span>Vellar Playground</span>
+    <>
+      {/* ---- Page-level header (all widths) — logo only, sits ABOVE the
+          sidebar+content shell, matching docs.vellar.xyz's reference: the
+          sidebar card itself has no brand row inside it, the wordmark is a
+          separate header above everything. Desktop shows the mark alone
+          (no "Vellar Playground" text — moved out of the sidebar entirely,
+          per the reference); the narrow/mobile variant keeps a short label
+          next to it since there's no sidebar wordmark to rely on there. ---- */}
+      <header className="lp-page-header">
+        <Link href="/" className="lp-page-brand">
+          <Image src="/logo-light.png" alt="Vellar" width={32} height={32} priority style={{ height: 32, width: "auto" }} />
+          <span className="lp-page-brand-label">Vellar Playground</span>
         </Link>
-        <nav className="lp-side-nav">
-          {NAV_GROUPS.map((group) => (
-            <div key={group.label}>
-              <div className="lp-side-group">{group.label}</div>
-              {group.items.map((item) => {
-                const active = isActive(pathname, item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cx("lp-side-link", active && "active")}
-                    aria-current={active ? "page" : undefined}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-        <div className="lp-side-foot">
-          Stellar testnet demo · <a href="https://stellar.expert/explorer/testnet" target="_blank" rel="noreferrer">Explorer ↗</a>
+      </header>
+
+      <div className="lp-shell">
+        {/* ---- Desktop sidebar (>900px) — nav only, no brand row ---- */}
+        <aside className="lp-sidebar" aria-label="Dashboard navigation">
+          <nav className="lp-side-nav">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.label}>
+                <div className="lp-side-group">{group.label}</div>
+                {group.items.map((item) => {
+                  const active = isActive(pathname, item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cx("lp-side-link", active && "active")}
+                      aria-current={active ? "page" : undefined}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
+          </nav>
+          <div className="lp-side-foot">
+            Stellar testnet demo · <a href="https://stellar.expert/explorer/testnet" target="_blank" rel="noreferrer">Explorer ↗</a>
+          </div>
+        </aside>
+
+        {/* ---- Mobile/narrow top bar (<=900px) ---- */}
+        <div className="lp-topbar">
+          <nav className="lp-topbar-links" aria-label="Dashboard navigation">
+            {NAV_ITEMS.map((item) => {
+              const active = isActive(pathname, item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={active ? "active" : undefined}
+                  aria-current={active ? "page" : undefined}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
-      </aside>
 
-      {/* ---- Mobile/narrow top bar (<=900px) ---- */}
-      <div className="lp-topbar">
-        <Link href="/" className="lp-topbar-brand">
-          <Image src="/logo-light.png" alt="" width={24} height={24} style={{ height: 24, width: "auto" }} />
-          <span>Vellar</span>
-        </Link>
-        <nav className="lp-topbar-links" aria-label="Dashboard navigation">
-          {NAV_ITEMS.map((item) => {
-            const active = isActive(pathname, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={active ? "active" : undefined}
-                aria-current={active ? "page" : undefined}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="lp-content">{children}</div>
       </div>
-
-      <div className="lp-content">{children}</div>
-    </div>
+    </>
   );
 }

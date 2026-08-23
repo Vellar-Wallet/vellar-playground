@@ -513,6 +513,37 @@
    .lp-eyebrow's type ramp. No bullet/icon marker — the reference is
    text-only. */
 
+/* Page-level header — the wordmark now lives ABOVE the sidebar+content
+   shell, not inside the sidebar card (see dashboard-shell.tsx's comment):
+   the reference's sidebar card has no brand row at all, just nav. Present
+   at every width, including the <=900px collapsed layout, so the mobile
+   topbar no longer needs its own brand row either. Height is a plain literal
+   (not a --lp-page-header-height custom property) since it's referenced
+   only here and in the two .lp-shell/.lp-sidebar calc()s directly below —
+   one clearly-commented number beats a token used in exactly three places. */
+.lp .lp-page-header {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  padding-inline: var(--lp-gutter);
+  background: var(--lp-paper);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp .lp-page-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--lp-ink);
+}
+.lp .lp-page-brand-label {
+  font-family: var(--lp-display);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
 .lp .lp-shell {
   display: grid;
   /* 248px sidebar + its own 1rem left margin (see .lp-sidebar) so the
@@ -520,13 +551,13 @@
      own inset. */
   grid-template-columns: calc(248px + var(--lp-sp-4)) minmax(0, 1fr);
   align-items: start;
-  min-height: 100svh;
+  min-height: calc(100svh - 64px);
 }
 .lp .lp-sidebar {
   position: sticky;
-  top: var(--lp-sp-4);
+  top: calc(64px + var(--lp-sp-4));
   align-self: start;
-  height: calc(100svh - var(--lp-sp-4) * 2);
+  height: calc(100svh - 64px - var(--lp-sp-4) * 2);
   margin: var(--lp-sp-4) 0 var(--lp-sp-4) var(--lp-sp-4);
   display: flex;
   flex-direction: column;
@@ -534,26 +565,6 @@
   border: 1px solid var(--lp-line);
   clip-path: var(--lp-clip-tr-md);
   padding: var(--lp-sp-6) var(--lp-sp-4);
-}
-.lp .lp-side-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: var(--lp-sp-2) var(--lp-sp-3) var(--lp-sp-8);
-  text-decoration: none;
-  color: var(--lp-ink);
-}
-.lp .lp-side-brand img {
-  display: block;
-  height: 28px;
-  width: auto;
-}
-.lp .lp-side-brand span {
-  font-family: var(--lp-display);
-  font-weight: 700;
-  font-size: 1.0625rem;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
 }
 /* Section group label — a sidebar-scoped variant of .lp-eyebrow (same
    weight/letter-spacing/uppercase convention) sized down slightly and
@@ -738,30 +749,17 @@
   .lp .lp-topbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    /* No brand row left in here (see dashboard-shell.tsx — the page-level
+       .lp-page-header above now carries the wordmark at every width), so
+       this is just the nav-links row; sticks directly under the header
+       rather than at the viewport top, since the header is sticky too. */
     position: sticky;
-    top: 0;
+    top: 64px;
     z-index: 40;
-    height: 64px;
+    height: 56px;
     padding-inline: var(--lp-gutter);
     background: var(--lp-paper);
     border-bottom: 1px solid var(--lp-line);
-  }
-  .lp .lp-topbar-brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    color: var(--lp-ink);
-  }
-  .lp .lp-topbar-brand img {
-    height: 24px;
-    width: auto;
-  }
-  .lp .lp-topbar-brand span {
-    font-family: var(--lp-display);
-    font-weight: 700;
-    font-size: 0.9375rem;
   }
   .lp .lp-topbar-links {
     display: flex;
