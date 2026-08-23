@@ -1099,11 +1099,43 @@
 }
 .lp .lp-step-label {
   flex: 1;
+  /* Without this, a flex item's default min-width:auto refuses to shrink
+     below its own content width — with .lp-step-note as a same-row
+     sibling ALSO defaulting to min-width:auto (competing for the same
+     row), the label got squeezed into a sliver narrower than a single
+     word and force-wrapped character by character on any real content
+     length ("GET the seller URL" reading as "GET / the / seller / URL"
+     down a narrow column) rather than wrapping naturally at word
+     boundaries. */
+  min-width: 0;
 }
 .lp .lp-step-note {
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--lp-ink-faint);
+  /* Same fix as .lp-step-label above, other side of the same row. */
+  min-width: 0;
+  flex: none;
+  max-width: 45%;
+  text-align: right;
+}
+@media (max-width: 560px) {
+  /* Below 560px there usually isn't room for label + note side by side
+     even with the min-width fix above — stack them instead of squeezing
+     both into an uncomfortably narrow shared row. */
+  .lp .lp-step-row {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .lp .lp-step-label {
+    flex-basis: 100%;
+  }
+  .lp .lp-step-note {
+    flex: 1;
+    max-width: none;
+    text-align: left;
+    padding-left: calc(22px + var(--lp-sp-3));
+  }
 }
 
 @keyframes lp-step-pulse {
@@ -1811,10 +1843,16 @@
   background: var(--lp-line-dark);
   color: var(--lp-on-dark);
   clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%);
+  transition: transform var(--lp-dur-fast) ease, background var(--lp-dur-fast) ease, color var(--lp-dur-fast) ease;
 }
+/* Rotating the "+" glyph 45° reads as an "×" (close) once expanded — a
+   clear, JS-free "click again to collapse" affordance. Previously this
+   only changed background color when open, with no visual cue that the
+   card had become collapsible again. */
 .lp .lp-fitem--raw[open] summary .pm {
   background: var(--lp-mint);
   color: var(--lp-ink);
+  transform: rotate(45deg);
 }
 .lp .lp-fitem--raw .body {
   padding: 0 2px var(--lp-sp-3);

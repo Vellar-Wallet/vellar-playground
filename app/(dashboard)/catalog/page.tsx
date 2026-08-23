@@ -46,22 +46,52 @@ interface CatalogItem {
    *  failure, rather than used to guess upfront which resources need a
    *  prompt. See ParamPrompt below. */
   exampleQueryParams?: Record<string, string>;
+  /** Example PATH-param values (extensions.bazaar.info.input.pathParams),
+   *  e.g. { address: "GAAT..." } for /inspect/:address. The resource URL
+   *  itself carries the literal, unsubstituted ":address" placeholder from
+   *  discovery — these values get substituted into the URL path (not
+   *  appended as a query string) before the resource is paid for. Same
+   *  reactive-only usage as exampleQueryParams. */
+  examplePathParams?: Record<string, string>;
 }
 
-function extractExampleQueryParams(item: unknown): Record<string, string> | undefined {
-  if (!item || typeof item !== "object") return undefined;
+/** Reads extensions.bazaar.info.input.{queryParams,pathParams} off a raw
+ *  discovery item and returns both example maps. Both live at the same
+ *  nesting depth (one level under `input`, confirmed via curl against the
+ *  real /discovery/resources response) — a single walk down to `input`
+ *  serves both, rather than two near-duplicate functions. */
+function extractExampleParams(item: unknown): { queryParams?: Record<string, string>; pathParams?: Record<string, string> } {
+  if (!item || typeof item !== "object") return {};
   const extensions = (item as Record<string, unknown>).extensions;
-  if (!extensions || typeof extensions !== "object") return undefined;
+  if (!extensions || typeof extensions !== "object") return {};
   const bazaar = (extensions as Record<string, unknown>).bazaar;
-  if (!bazaar || typeof bazaar !== "object") return undefined;
+  if (!bazaar || typeof bazaar !== "object") return {};
   const info = (bazaar as Record<string, unknown>).info;
-  if (!info || typeof info !== "object") return undefined;
-  const queryParams = (info as Record<string, unknown>).queryParams;
-  if (!queryParams || typeof queryParams !== "object") return undefined;
-  const entries = Object.entries(queryParams as Record<string, unknown>).filter(
-    (entry): entry is [string, string] => typeof entry[1] === "string",
-  );
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+  if (!info || typeof info !== "object") return {};
+  // BUG FIX: this used to read `info.queryParams` directly — one level too
+  // shallow. The real live shape (confirmed via curl against
+  // /discovery/resources) nests queryParams/pathParams one level deeper,
+  // under `info.input`, matching this function's own doc comment above
+  // (which had the right path all along) but not what the code actually
+  // read. Silent effect: exampleQueryParams was always undefined for
+  // every real resource, so the "needs_input" param-prompt form could
+  // never fire — any resource needing query params (hash, base64,
+  // word-count, stroops) fell into a permanent, unrecoverable generic
+  // "Payment failed" error with no way to supply the input a retry would
+  // need.
+  const input = (info as Record<string, unknown>).input;
+  if (!input || typeof input !== "object") return {};
+  const toStringMap = (value: unknown): Record<string, string> | undefined => {
+    if (!value || typeof value !== "object") return undefined;
+    const entries = Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    );
+    return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+  };
+  return {
+    queryParams: toStringMap((input as Record<string, unknown>).queryParams),
+    pathParams: toStringMap((input as Record<string, unknown>).pathParams),
+  };
 }
 
 function normalizeItems(body: unknown): CatalogItem[] {
@@ -81,7 +111,10 @@ function normalizeItems(body: unknown): CatalogItem[] {
     // see isLocalOrPrivateResource()'s doc comment. Filtered from display
     // only, never from what's fetched.
     .filter((item) => !isLocalOrPrivateResource(item.resource as string))
-    .map((item) => ({ ...(item as unknown as CatalogItem), exampleQueryParams: extractExampleQueryParams(item) }));
+    .map((item) => {
+      const { queryParams, pathParams } = extractExampleParams(item);
+      return { ...(item as unknown as CatalogItem), exampleQueryParams: queryParams, examplePathParams: pathParams };
+    });
 }
 
 type CatalogStage =
@@ -339,20 +372,40 @@ export default function CatalogPage() {
   // resource's entry in `payState`. See PayState's doc comment above for why
   // this keeps every card's flow independent.
   //
-  // `queryParams`, when given, is appended to `resourceUrl` before it's sent
-  // as the resource actually paid for — see ParamPrompt below. `payState`
+  // `params`, when given, is applied to `resourceUrl` before it's sent as
+  // the resource actually paid for — see ParamPrompt below. Path params
+  // (e.g. /inspect/:address) substitute the literal `:key` placeholder in
+  // the URL path; everything else is appended as a query string. `payState`
   // stays keyed by the CARD's base resource URL throughout (never the
-  // param-appended one), so a resubmission with different param values still
+  // substituted one), so a resubmission with different param values still
   // updates the same card rather than opening a second entry.
   // ---------------------------------------------------------------------
-  const payForResource = useCallback(async (resourceUrl: string, queryParams?: Record<string, string>) => {
+  const payForResource = useCallback(async (resourceUrl: string, params?: Record<string, string>) => {
     setPayState((prev) => ({ ...prev, [resourceUrl]: { status: "paying", startedAt: Date.now() } }));
 
     let requestUrl = resourceUrl;
-    if (queryParams && Object.keys(queryParams).length > 0) {
-      const url = new URL(resourceUrl);
-      for (const [key, value] of Object.entries(queryParams)) url.searchParams.set(key, value);
-      requestUrl = url.toString();
+    if (params && Object.keys(params).length > 0) {
+      // Path substitution first (":key" segments), then whatever's left
+      // over goes on the query string — a key that matched a ":key"
+      // placeholder in the path is consumed there and NOT also appended as
+      // a query param.
+      let substitutedPath = resourceUrl;
+      const remaining: Record<string, string> = {};
+      for (const [key, value] of Object.entries(params)) {
+        const placeholder = `:${key}`;
+        if (substitutedPath.includes(placeholder)) {
+          substitutedPath = substitutedPath.split(placeholder).join(encodeURIComponent(value));
+        } else {
+          remaining[key] = value;
+        }
+      }
+      if (Object.keys(remaining).length > 0) {
+        const url = new URL(substitutedPath);
+        for (const [key, value] of Object.entries(remaining)) url.searchParams.set(key, value);
+        requestUrl = url.toString();
+      } else {
+        requestUrl = substitutedPath;
+      }
     }
 
     try {
@@ -406,7 +459,7 @@ export default function CatalogPage() {
         // check), not by string-matching `.message`.
         if (event.error === "no_challenge") {
           const item = itemsByResourceRef.current.get(resourceUrl);
-          if (item?.exampleQueryParams) {
+          if (item?.exampleQueryParams || item?.examplePathParams) {
             setPayState((prev) => ({
               ...prev,
               [resourceUrl]: {
@@ -667,28 +720,36 @@ export default function CatalogPage() {
               </p>
             )}
             <div className="lp-dgrid" style={{ marginTop: "var(--lp-sp-2)" }}>
-              {displayed.items.map((item, index) => (
-                <CatalogCard
-                  key={item.resource}
-                  item={item}
-                  accentIndex={index}
-                  settlementBump={settlementBumps[item.resource] ?? 0}
-                  pay={payState[item.resource]}
-                  paramValues={paramValues[item.resource] ?? item.exampleQueryParams ?? {}}
-                  onParamChange={(key, value) =>
-                    setParamValues((prev) => ({
-                      ...prev,
-                      [item.resource]: { ...(prev[item.resource] ?? item.exampleQueryParams ?? {}), [key]: value },
-                    }))
-                  }
-                  walletPendingForThis={walletFlowResource === item.resource}
-                  wallet={wallet}
-                  walletElapsed={walletElapsed}
-                  onPayClick={() => handlePayClick(item.resource)}
-                  onRetryPay={() => payForResource(item.resource)}
-                  onSubmitParams={() => payForResource(item.resource, paramValues[item.resource] ?? item.exampleQueryParams ?? {})}
-                />
-              ))}
+              {displayed.items.map((item, index) => {
+                // Combined example values (path + query) — the form treats
+                // both uniformly (the user just fills in named fields);
+                // payForResource is what tells path segments apart from
+                // query params, by checking each key against the URL's own
+                // ":key" placeholders.
+                const exampleParams = { ...item.exampleQueryParams, ...item.examplePathParams };
+                return (
+                  <CatalogCard
+                    key={item.resource}
+                    item={item}
+                    accentIndex={index}
+                    settlementBump={settlementBumps[item.resource] ?? 0}
+                    pay={payState[item.resource]}
+                    paramValues={paramValues[item.resource] ?? exampleParams}
+                    onParamChange={(key, value) =>
+                      setParamValues((prev) => ({
+                        ...prev,
+                        [item.resource]: { ...(prev[item.resource] ?? exampleParams), [key]: value },
+                      }))
+                    }
+                    walletPendingForThis={walletFlowResource === item.resource}
+                    wallet={wallet}
+                    walletElapsed={walletElapsed}
+                    onPayClick={() => handlePayClick(item.resource)}
+                    onRetryPay={() => payForResource(item.resource)}
+                    onSubmitParams={() => payForResource(item.resource, paramValues[item.resource] ?? exampleParams)}
+                  />
+                );
+              })}
             </div>
           </>
         )}

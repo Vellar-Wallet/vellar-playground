@@ -1827,29 +1827,38 @@ function PayLedger({ pay, elapsed, onRetry }: { pay: PayStage; elapsed: number; 
     <div className="lp-trace-grid">
       <div>
         <Eyebrow>One request, end to end</Eyebrow>
-        <h2 style={{ marginTop: "var(--lp-sp-4)" }}>
+        {/* This is the single biggest, most important text block on the
+            page (this component's own doc comment calls it "the cinematic
+            moment") -- --lp-sp-4 (1rem) between the headline and the lead
+            paragraph, and between every conditional status line stacked
+            below it, read as cramped/tense at that scale. Given real room
+            to breathe: --lp-sp-8 (2rem) after the headline (the scale's
+            next real step up from --lp-sp-6), --lp-sp-6 between stacked
+            lines below, and a slightly taller line-height on the lead
+            paragraph specifically. */}
+        <h2 style={{ marginTop: "var(--lp-sp-8)" }}>
           Your wallet hits a paywall. <em>It pays it.</em>
         </h2>
-        <p className="lp-lead">
+        <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)", lineHeight: 1.75 }}>
           GET the resource, get a 402, build and sign a Stellar payment, verify and settle it, and
           receive the paid resource — all from a real testnet keypair, no browser secret. Six real
           steps, each one only ticks once it has genuinely happened.
         </p>
 
         {pay.status === "paying" && attempt > 1 && (
-          <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontWeight: 700 }}>
+          <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)", fontWeight: 700 }}>
             Attempt {attempt} of {maxAttempts} — the first attempt didn&apos;t settle (this happens on
             testnet), so the whole flow restarted with a fresh signature.
           </p>
         )}
         {pay.status === "paying" && pay.wakingUp && (
-          <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)" }}>
+          <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)" }}>
             The demo seller looks like it&apos;s waking up from a cold start — this can take up to a
             minute on testnet. ({elapsed}s)
           </p>
         )}
         {pay.status === "paying" && !pay.wakingUp && (
-          <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)" }}>
+          <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)" }}>
             Paying... ({elapsed}s)
           </p>
         )}
