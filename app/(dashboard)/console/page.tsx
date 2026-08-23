@@ -195,7 +195,7 @@ function EndpointCard({
   onRun: () => void;
 }) {
   return (
-    <div className="lp-dpanel lp-dpanel--dark">
+    <div className="lp-dpanel lp-dpanel--dark lp-dpanel--dark-lime">
       <div className="lp-dpanel-head">
         <h2 style={{ fontSize: "var(--lp-fs-h4)", fontFamily: "var(--lp-mono)" }}>
           {endpoint.method} {endpoint.path}
@@ -255,13 +255,31 @@ function EndpointCard({
         </>
       ) : (
         <>
-          <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-4)" }}>
-            <div className="head">
+          {/* Collapsed by default — same <details>/.lp-fitem--raw disclosure
+              pattern the payment ledger's "Raw wire bytes" rows use (see
+              app/(dashboard)/page.tsx's StepRawBytes). The always-expanded
+              version of this made /verify and /settle far taller than their
+              GET siblings (a static internal maxHeight:420 JSON block
+              embedded directly in card flow), pushing the whole grid past
+              the fold — collapsing it fixes the actual height cause rather
+              than just shrinking the number. */}
+          <details className="lp-fitem lp-fitem--raw" style={{ marginTop: "var(--lp-sp-4)" }}>
+            <summary>
               <span>Illustrative request body</span>
-              <span>POST</span>
+              <span className="pm" aria-hidden>
+                +
+              </span>
+            </summary>
+            <div className="body">
+              <div className="lp-trace-panel" style={{ marginTop: "var(--lp-sp-3)" }}>
+                <div className="head">
+                  <span>Request</span>
+                  <span>POST</span>
+                </div>
+                <JsonBlock text={ILLUSTRATIVE_BODY} />
+              </div>
             </div>
-            <JsonBlock text={ILLUSTRATIVE_BODY} />
-          </div>
+          </details>
           <p className="lp-lead" style={{ marginTop: "var(--lp-sp-4)", fontSize: "0.9rem" }}>
             Use the guided demo page to trigger these →{" "}
             <Link href="/" style={{ textDecoration: "underline", color: "var(--lp-sun)" }}>

@@ -6,6 +6,7 @@ import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 import { useScrollSpy } from "@/lib/use-scroll-spy";
 import { FACILITATOR_URL, SELLER_URL } from "@/lib/config";
+import { isLocalOrPrivateResource } from "@/lib/catalog";
 import {
   clearAll,
   readLastPayment,
@@ -624,7 +625,12 @@ export default function Home() {
         setCatalog({ status: "error", message: body?.message || "We couldn't load the catalog. Please try again." });
         return;
       }
-      const items: CatalogItem[] = Array.isArray(body?.items) ? body.items : [];
+      const rawItems: CatalogItem[] = Array.isArray(body?.items) ? body.items : [];
+      // Other developers' local dev/test resources genuinely get indexed
+      // into the shared facilitator catalog (confirmed live) — filtered
+      // from display only, same helper /catalog uses. See
+      // isLocalOrPrivateResource()'s doc comment in lib/catalog.ts.
+      const items = rawItems.filter((item) => !isLocalOrPrivateResource(item.resource));
       setCatalog({ status: "ready", items });
     } catch {
       setCatalog({ status: "error", message: "We couldn't reach the server. Please check your connection and try again." });
@@ -1775,7 +1781,19 @@ function StepRawBytes({ step, stepName }: { step: LedgerStepState; stepName: Led
   if (rows.length === 0 && !note) return null;
 
   return (
-    <details className="lp-fitem lp-fitem--raw">
+    // name="ledger-raw-bytes" makes this a native browser accordion: only
+    // one of the (up to 6) sibling <details> in one PayLedger can be open
+    // at a time — opening another auto-closes whichever was open, zero JS
+    // state needed. There's only ever one PayLedger rendered at once on
+    // this page (payment is either idle or a single in-flight flow), so one
+    // shared literal name across every instance is safe — no risk of an
+    // unrelated ledger's rows colliding with this one's. Paired with
+    // .lp-fitem--raw .body's max-height + scroll (landing.css) so even a
+    // single opened row can't grow the panel past a fixed ceiling — see
+    // that rule's comment for why (this was reported as visibly "wildly
+    // increasing" the panel size with nothing capping it in either
+    // direction).
+    <details className="lp-fitem lp-fitem--raw" name="ledger-raw-bytes">
       <summary>
         <span>Raw wire bytes</span>
         <span className="pm" aria-hidden>
@@ -2661,7 +2679,7 @@ function AttackBenchSection({
       </p>
 
       {/* ---- Payment-attack track ---- */}
-      <div className="lp-dpanel lp-dpanel--dark" style={{ marginTop: "var(--lp-sp-6)" }}>
+      <div className="lp-dpanel lp-dpanel--dark lp-dpanel--dark-coral" style={{ marginTop: "var(--lp-sp-6)" }}>
         <div className="lp-dpanel-head">
           <h3>Payment attacks</h3>
         </div>
@@ -2795,7 +2813,7 @@ function AttackBenchSection({
       </div>
 
       {/* ---- Sanitizer demo (attack 8) ---- */}
-      <div className="lp-dpanel lp-dpanel--dark" style={{ marginTop: "var(--lp-sp-6)" }}>
+      <div className="lp-dpanel lp-dpanel--dark lp-dpanel--dark-coral" style={{ marginTop: "var(--lp-sp-6)" }}>
         <div className="lp-dpanel-head">
           <h3>Prompt injection via a crafted description</h3>
         </div>

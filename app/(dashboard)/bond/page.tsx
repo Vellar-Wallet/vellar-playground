@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { cx, Eyebrow, Frame, MonoRow, MonoRows } from "../../design/ui";
 import { truncateMiddle } from "@/lib/format";
-import { useScrollSpy } from "@/lib/use-scroll-spy";
 import {
   BOND_ESCROW_CONTRACT_ID,
   BOND_SEQUENCE,
@@ -318,14 +317,14 @@ function BondRunOnYourMachine() {
 }
 
 // ---------------------------------------------------------------------------
-// Part jump-nav — lighter version of "/"'s StationNav, same .lp-stationnav
-// CSS. bond/page.tsx is a single long topic (not 3 parallel demo stations),
-// but it does have 3 real, already-named parts (see this file's own
-// STRUCTURE comment above) plus 6 substantial expandable steps inside Part
-// 2 — long enough that a "jump to Part 2/3" affordance earns its place,
-// unlike /quest's grid-shaped 5-card layout which never needs one (see the
-// task report for that judgment call). Scroll-spy reuses the same
-// useScrollSpy hook as "/", just watching 3 ids instead of 3.
+// Part tabs — real tabs (one part visible at a time), not the scroll-spy
+// jump-nav this used to be. The nav bar visually presents as tabs (pill
+// buttons, an "active" highlight) but previously just scrolled to an anchor
+// while every part stayed rendered continuously — which put the nav BELOW
+// the very first part it linked to ("The problem" content, then a nav bar
+// whose first item is also "The problem", pointing back up at what the
+// visitor just read) and never actually shortened the page. Real tabs fix
+// both: the bar sits above all content, and only the active part renders.
 // ---------------------------------------------------------------------------
 
 const BOND_PARTS = [
@@ -334,15 +333,24 @@ const BOND_PARTS = [
   { id: "bond-part-3", label: "What's live" },
 ] as const;
 
-function BondNav() {
-  const activeId = useScrollSpy(BOND_PARTS.map((p) => p.id));
+type BondPartId = (typeof BOND_PARTS)[number]["id"];
 
+function BondTabs({ activeId, onSelect }: { activeId: BondPartId; onSelect: (id: BondPartId) => void }) {
   return (
-    <nav className="lp-stationnav" aria-label="Jump to a part">
+    <nav className="lp-stationnav" role="tablist" aria-label="Bond system">
       {BOND_PARTS.map((part) => (
-        <a key={part.id} href={`#${part.id}`} className={cx(part.id === activeId && "active")}>
+        <button
+          key={part.id}
+          type="button"
+          role="tab"
+          id={`tab-${part.id}`}
+          aria-selected={part.id === activeId}
+          aria-controls={part.id}
+          className={cx(part.id === activeId && "active")}
+          onClick={() => onSelect(part.id)}
+        >
           {part.label}
-        </a>
+        </button>
       ))}
     </nav>
   );
@@ -353,12 +361,26 @@ function BondNav() {
 // ---------------------------------------------------------------------------
 
 export default function BondPage() {
+  const [activeId, setActiveId] = useState<BondPartId>("bond-part-1");
+
   return (
     <>
-      <div id="bond-part-1" className="lp-content-head">
+      <div className="lp-content-head">
         <Eyebrow>Provider bond system</Eyebrow>
         <h1>x402 settles before delivery is confirmed. This closes that gap.</h1>
-        <p className="lp-lead">
+      </div>
+
+      <BondTabs activeId={activeId} onSelect={setActiveId} />
+
+      <section
+        id="bond-part-1"
+        role="tabpanel"
+        aria-labelledby="tab-bond-part-1"
+        hidden={activeId !== "bond-part-1"}
+        style={{ marginTop: "var(--lp-sp-xl)" }}
+      >
+        <Eyebrow>The problem</Eyebrow>
+        <p className="lp-lead" style={{ marginTop: "var(--lp-sp-3)" }}>
           A plain x402 payment settles the moment the facilitator verifies it — before the buyer has any
           way to know whether the seller actually delivered. If a provider takes payment and returns
           garbage, the settlement already happened, with no on-chain recourse. Nobody has solved this on
@@ -367,11 +389,15 @@ export default function BondPage() {
           registers standing to dispute, and a bad delivery can be slashed on-chain instead of just
           disputed in someone&apos;s inbox.
         </p>
-      </div>
+      </section>
 
-      <BondNav />
-
-      <section id="bond-part-2" style={{ marginTop: "var(--lp-sp-xl)" }}>
+      <section
+        id="bond-part-2"
+        role="tabpanel"
+        aria-labelledby="tab-bond-part-2"
+        hidden={activeId !== "bond-part-2"}
+        style={{ marginTop: "var(--lp-sp-xl)" }}
+      >
         <Eyebrow>How it works</Eyebrow>
         <p className="lp-lead" style={{ marginTop: "var(--lp-sp-3)", marginBottom: "var(--lp-sp-6)" }}>
           Click any step to expand what actually happens on-chain, with the real proven transaction for
@@ -385,7 +411,13 @@ export default function BondPage() {
         </div>
       </section>
 
-      <section id="bond-part-3" style={{ marginTop: "var(--lp-sp-xl)" }}>
+      <section
+        id="bond-part-3"
+        role="tabpanel"
+        aria-labelledby="tab-bond-part-3"
+        hidden={activeId !== "bond-part-3"}
+        style={{ marginTop: "var(--lp-sp-xl)" }}
+      >
         <Eyebrow>What&apos;s live today vs what&apos;s coming</Eyebrow>
 
         <div className="lp-dgrid lp-dgrid--wide" style={{ marginTop: "var(--lp-sp-6)" }}>
@@ -416,7 +448,7 @@ export default function BondPage() {
             </ul>
           </div>
 
-          <div className="lp-dpanel lp-dpanel--dark">
+          <div className="lp-dpanel lp-dpanel--dark lp-dpanel--dark-lime">
             <div className="lp-dpanel-head">
               <h2 style={{ fontSize: "var(--lp-fs-h4)" }}>Not yet live</h2>
             </div>

@@ -5,6 +5,7 @@ import { Eyebrow, LpActionButton } from "../../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 import { readSession, writeLastCatalogSearch, writeSession } from "@/lib/local-storage";
+import { isLocalOrPrivateResource } from "@/lib/catalog";
 
 // ---------------------------------------------------------------------------
 // Types — live shapes verified by curl against the hosted facilitator (see
@@ -37,6 +38,30 @@ interface CatalogItem {
   description?: string;
   accepts?: CatalogAccept[];
   trust?: Trust;
+  /** Example query-param values from the resource's own Bazaar discovery
+   *  entry (extensions.bazaar.info.input.queryParams), e.g. { input: "hello
+   *  world" } for /hash. Not every resource needs input — /quote, /timestamp,
+   *  /uuid all answer with zero params — so this is only ever CONSULTED
+   *  reactively, after a real "no_challenge" (expected 402, got a non-402)
+   *  failure, rather than used to guess upfront which resources need a
+   *  prompt. See ParamPrompt below. */
+  exampleQueryParams?: Record<string, string>;
+}
+
+function extractExampleQueryParams(item: unknown): Record<string, string> | undefined {
+  if (!item || typeof item !== "object") return undefined;
+  const extensions = (item as Record<string, unknown>).extensions;
+  if (!extensions || typeof extensions !== "object") return undefined;
+  const bazaar = (extensions as Record<string, unknown>).bazaar;
+  if (!bazaar || typeof bazaar !== "object") return undefined;
+  const info = (bazaar as Record<string, unknown>).info;
+  if (!info || typeof info !== "object") return undefined;
+  const queryParams = (info as Record<string, unknown>).queryParams;
+  if (!queryParams || typeof queryParams !== "object") return undefined;
+  const entries = Object.entries(queryParams as Record<string, unknown>).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function normalizeItems(body: unknown): CatalogItem[] {
@@ -47,7 +72,16 @@ function normalizeItems(body: unknown): CatalogItem[] {
     : Array.isArray(record.resources)
       ? record.resources
       : [];
-  return raw.filter((item): item is CatalogItem => Boolean(item && typeof item === "object" && typeof (item as CatalogItem).resource === "string"));
+  return raw
+    .filter((item): item is Record<string, unknown> & { resource: string } =>
+      Boolean(item && typeof item === "object" && typeof (item as CatalogItem).resource === "string"),
+    )
+    // Other developers' local dev/test resources (localhost/private-IP
+    // hosts) genuinely get indexed into the shared facilitator catalog —
+    // see isLocalOrPrivateResource()'s doc comment. Filtered from display
+    // only, never from what's fetched.
+    .filter((item) => !isLocalOrPrivateResource(item.resource as string))
+    .map((item) => ({ ...(item as unknown as CatalogItem), exampleQueryParams: extractExampleQueryParams(item) }));
 }
 
 type CatalogStage =
@@ -152,7 +186,18 @@ interface PayCompleteResult {
 type PayCardState =
   | { status: "paying"; startedAt: number }
   | { status: "success"; result: PayCompleteResult }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string }
+  // Real, wire-observed failure: the resource answered the unpaid GET with
+  // something other than a 402 challenge (server-reported `error ===
+  // "no_challenge"` — see lib/pay.ts's exact check). For a resource whose
+  // Bazaar discovery entry advertises example queryParams (e.g. /hash's
+  // `input`, /word-count's `text`), the overwhelmingly likely cause is that
+  // it needs those params to answer at all — a blank GET/HEAD-equivalent
+  // call 400s before ever reaching the 402 challenge. Rather than guessing
+  // upfront which of the catalog's resources need input, this state is only
+  // EVER entered reactively, after that specific real failure — see
+  // payForResource's handleComplete.
+  | { status: "needs_input"; message: string };
 
 /** Per-card payment state, keyed by resource URL. Cards not present in this
  *  map render their default "Pay" button (idle). Using a plain keyed record
@@ -187,6 +232,19 @@ export default function CatalogPage() {
   const pendingResourceRef = useRef<string | null>(null);
 
   const [payState, setPayState] = useState<PayState>({});
+  // Current param-form values per resource, keyed by resource URL — only
+  // populated once a card enters "needs_input" and the user starts editing
+  // the prefilled example values. Kept separate from `payState` so a param
+  // edit never has to reconstruct/guess at the rest of that resource's
+  // PayCardState.
+  const [paramValues, setParamValues] = useState<Record<string, Record<string, string>>>({});
+  // Kept in sync every render (below, near `displayed`) rather than as
+  // state — payForResource is a useCallback with empty deps (so its
+  // identity is stable across re-renders, matching every other handler in
+  // this file), so it can't close over `catalog`/`search` state directly
+  // without going stale; a ref read at call time gives it the current
+  // catalog without needing to be in its dependency array.
+  const itemsByResourceRef = useRef<Map<string, CatalogItem>>(new Map());
   // Optimistic per-resource settlement-count bump — see the settlements-
   // count-after-payment judgment call in this task's report. Kept separate
   // from `catalog`/`search`'s own item data (rather than mutating those
@@ -280,15 +338,28 @@ export default function CatalogPage() {
   // Payment — streams POST /api/pay for one resource, updating only that
   // resource's entry in `payState`. See PayState's doc comment above for why
   // this keeps every card's flow independent.
+  //
+  // `queryParams`, when given, is appended to `resourceUrl` before it's sent
+  // as the resource actually paid for — see ParamPrompt below. `payState`
+  // stays keyed by the CARD's base resource URL throughout (never the
+  // param-appended one), so a resubmission with different param values still
+  // updates the same card rather than opening a second entry.
   // ---------------------------------------------------------------------
-  const payForResource = useCallback(async (resourceUrl: string) => {
+  const payForResource = useCallback(async (resourceUrl: string, queryParams?: Record<string, string>) => {
     setPayState((prev) => ({ ...prev, [resourceUrl]: { status: "paying", startedAt: Date.now() } }));
+
+    let requestUrl = resourceUrl;
+    if (queryParams && Object.keys(queryParams).length > 0) {
+      const url = new URL(resourceUrl);
+      for (const [key, value] of Object.entries(queryParams)) url.searchParams.set(key, value);
+      requestUrl = url.toString();
+    }
 
     try {
       const res = await fetch("/api/pay", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ resourceUrl }),
+        body: JSON.stringify({ resourceUrl: requestUrl }),
       });
       if (!res.ok || !res.body) {
         setPayState((prev) => ({
@@ -321,6 +392,28 @@ export default function CatalogPage() {
             // Optimistic +1 — see the settlements-count-after-payment doc
             // comment on `settlementBumps` above.
             setSettlementBumps((prev) => ({ ...prev, [resourceUrl]: (prev[resourceUrl] ?? 0) + 1 }));
+            return;
+          }
+        }
+        // A real "expected 402, got HTTP <n>" failure on a resource that
+        // advertises example query params (per its own Bazaar discovery
+        // entry) is overwhelmingly a missing- or wrong-value-input case, not
+        // a transient network issue — offer the param form (again, if this
+        // was already a resubmission with edited values that still didn't
+        // work) instead of a plain "try again" that would just repeat the
+        // same failing call verbatim. Detected from the server's own
+        // machine-readable `error` code (lib/pay.ts's exact "no_challenge"
+        // check), not by string-matching `.message`.
+        if (event.error === "no_challenge") {
+          const item = itemsByResourceRef.current.get(resourceUrl);
+          if (item?.exampleQueryParams) {
+            setPayState((prev) => ({
+              ...prev,
+              [resourceUrl]: {
+                status: "needs_input",
+                message: typeof event.message === "string" ? event.message : "This resource needs input to pay for it.",
+              },
+            }));
             return;
           }
         }
@@ -493,6 +586,16 @@ export default function CatalogPage() {
   const isSearching = query.trim() !== "";
   const displayed = isSearching ? search : catalog;
 
+  // Kept current after every commit — see itemsByResourceRef's doc comment
+  // above. An effect (not a during-render mutation) so this stays a pure
+  // side effect rather than a render-body write.
+  useEffect(() => {
+    if (displayed.status !== "ready") return;
+    const map = new Map<string, CatalogItem>();
+    for (const item of displayed.items) map.set(item.resource, item);
+    itemsByResourceRef.current = map;
+  }, [displayed]);
+
   return (
     <>
       <div className="lp-content-head">
@@ -571,11 +674,19 @@ export default function CatalogPage() {
                   accentIndex={index}
                   settlementBump={settlementBumps[item.resource] ?? 0}
                   pay={payState[item.resource]}
+                  paramValues={paramValues[item.resource] ?? item.exampleQueryParams ?? {}}
+                  onParamChange={(key, value) =>
+                    setParamValues((prev) => ({
+                      ...prev,
+                      [item.resource]: { ...(prev[item.resource] ?? item.exampleQueryParams ?? {}), [key]: value },
+                    }))
+                  }
                   walletPendingForThis={walletFlowResource === item.resource}
                   wallet={wallet}
                   walletElapsed={walletElapsed}
                   onPayClick={() => handlePayClick(item.resource)}
                   onRetryPay={() => payForResource(item.resource)}
+                  onSubmitParams={() => payForResource(item.resource, paramValues[item.resource] ?? item.exampleQueryParams ?? {})}
                 />
               ))}
             </div>
@@ -626,21 +737,27 @@ function CatalogCard({
   accentIndex,
   settlementBump,
   pay,
+  paramValues,
+  onParamChange,
   walletPendingForThis,
   wallet,
   walletElapsed,
   onPayClick,
   onRetryPay,
+  onSubmitParams,
 }: {
   item: CatalogItem;
   accentIndex: number;
   settlementBump: number;
   pay: PayCardState | undefined;
+  paramValues: Record<string, string>;
+  onParamChange: (key: string, value: string) => void;
   walletPendingForThis: boolean;
   wallet: WalletStage;
   walletElapsed: number;
   onPayClick: () => void;
   onRetryPay: () => void;
+  onSubmitParams: () => void;
 }) {
   const accept = item.accepts?.[0];
   const badge = ownershipBadge(item.trust);
@@ -674,8 +791,11 @@ function CatalogCard({
         wallet={wallet}
         walletElapsed={walletElapsed}
         pay={pay}
+        paramValues={paramValues}
+        onParamChange={onParamChange}
         onPayClick={onPayClick}
         onRetryPay={onRetryPay}
+        onSubmitParams={onSubmitParams}
       />
     </div>
   );
@@ -690,15 +810,21 @@ function CardPayArea({
   wallet,
   walletElapsed,
   pay,
+  paramValues,
+  onParamChange,
   onPayClick,
   onRetryPay,
+  onSubmitParams,
 }: {
   walletPendingForThis: boolean;
   wallet: WalletStage;
   walletElapsed: number;
   pay: PayCardState | undefined;
+  paramValues: Record<string, string>;
+  onParamChange: (key: string, value: string) => void;
   onPayClick: () => void;
   onRetryPay: () => void;
+  onSubmitParams: () => void;
 }) {
   // 1. This card is the one that triggered wallet creation, and it's still
   // in flight — show the inline provisioning flow right here, per the
@@ -771,6 +897,44 @@ function CardPayArea({
           <a className="lp-btn lp-btn--ghost" href={explorerUrl} target="_blank" rel="noreferrer">
             View on Stellar Expert →
           </a>
+        </div>
+      </div>
+    );
+  }
+
+  // 3.5. Needs input — the resource 400'd on a blank call. Show its real
+  // example query params (from its own Bazaar discovery entry) as a small
+  // prefilled form; submitting re-attempts payment with those values
+  // appended to the resource URL. See PayCardState's "needs_input" doc
+  // comment for why this is only ever entered reactively, never guessed
+  // upfront.
+  if (pay?.status === "needs_input") {
+    const keys = Object.keys(paramValues);
+    return (
+      <div>
+        <p className="lp-lead" style={{ fontSize: "0.8rem" }}>
+          This resource needs input to run — fill in the values below and pay again.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--lp-sp-2)", marginTop: "var(--lp-sp-3)" }}>
+          {keys.map((key) => (
+            <label key={key} style={{ display: "block" }}>
+              <span className="lp-eyebrow" style={{ display: "block", marginBottom: "var(--lp-sp-1)", fontSize: "0.68rem" }}>
+                {key}
+              </span>
+              <input
+                type="text"
+                value={paramValues[key]}
+                onChange={(e) => onParamChange(key, e.target.value)}
+                className="lp-field"
+                style={{ width: "100%", font: "inherit", fontSize: "0.85rem", color: "inherit", display: "block" }}
+              />
+            </label>
+          ))}
+        </div>
+        <div className="lp-cta-row" style={{ marginTop: "var(--lp-sp-3)" }}>
+          <LpActionButton variant="sun" size="sm" onClick={onSubmitParams}>
+            Pay with these values →
+          </LpActionButton>
         </div>
       </div>
     );

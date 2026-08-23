@@ -766,12 +766,53 @@
 .lp .lp-dpanel--coral {
   --panel-fill: var(--lp-coral-soft);
 }
+/* Section-accent dark panels — every dark surface used to default to the
+   same near-black forest fill everywhere in the app (ledger, console,
+   attack tracks, status, bond), with zero visual distinction between
+   what's a live-payment surface, a reference/docs surface, or an
+   adversarial one. Reported as "dull" — the fix isn't a new color, it's
+   using the palette that already exists (--lp-mint/-coral/-lime, already
+   built for the light .lp-dpanel--mint/-coral/-lime tints above) to give
+   each KIND of dark panel its own identity:
+     --dark-mint  — live/settled paths (Station 1's ledger, Station 2's
+                    ownership verify): "this is really happening" surfaces.
+     --dark-coral — adversarial surfaces (Station 3's attack tracks): the
+                    one deliberate risk/attack accent, same role coral
+                    already plays as the light system's error tone.
+     --dark-lime  — reference/informational surfaces (console, status,
+                    bond's "not yet live" list): docs-flavored, neither a
+                    live transaction nor an attack.
+   --dpanel-dark-accent is the one variable each modifier sets; every rule
+   below reads from it rather than hardcoding --lp-mint, so adding a 4th
+   tint later is one variable, not a repeat of this whole block. The panel
+   also now carries a real accent-colored border (border-as-background,
+   same technique --lp-dpanel's own light-mode border already uses) — a
+   plain dark fill with no border read as flat; a crisp 1px accent edge
+   gives it the "personality" a section-specific color is supposed to
+   carry, not just a tinted eyebrow buried inside. */
 .lp .lp-dpanel--dark {
-  background: var(--lp-ink);
+  --dpanel-dark-accent: var(--lp-mint);
+  background: var(--dpanel-dark-accent); /* the 1px accent border */
   color: var(--lp-on-dark);
 }
 .lp .lp-dpanel--dark::before {
-  background: color-mix(in srgb, var(--lp-on-dark) 4%, var(--lp-ink));
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--dpanel-dark-accent) 6%, var(--lp-ink));
+  clip-path: var(--lp-clip-br-md-in1);
+}
+.lp .lp-dpanel--dark-coral {
+  --dpanel-dark-accent: var(--lp-coral);
+}
+.lp .lp-dpanel--dark-lime {
+  --dpanel-dark-accent: var(--lp-lime);
+}
+.lp .lp-dpanel--dark .lp-dpanel-head h2,
+.lp .lp-dpanel--dark .lp-dpanel-head h3,
+.lp .lp-dpanel--dark .lp-eyebrow {
+  color: var(--dpanel-dark-accent);
 }
 .lp .lp-dpanel--dark .lp-lead {
   color: var(--lp-on-dark-soft);
@@ -783,7 +824,7 @@
   color: var(--lp-on-dark-soft);
 }
 .lp .lp-dpanel--dark .lp-mrow b.ok {
-  color: var(--lp-mint);
+  color: var(--dpanel-dark-accent);
 }
 /* .lp-step-row's own base color (--lp-ink-faint, a translucent forest-
    green) is meant for the paper-white surfaces it appears on everywhere
@@ -812,10 +853,8 @@
    both to their on-dark equivalents; active/done/skipped/error states
    already use opaque saturated fills that read fine unchanged. */
 .lp .lp-dpanel--dark .lp-step-mark {
-  background: var(--lp-line-dark);
-}
-.lp .lp-dpanel--dark .lp-step-mark::before {
   background: color-mix(in srgb, var(--lp-on-dark) 10%, var(--lp-ink));
+  border-color: var(--lp-line-dark);
 }
 .lp .lp-dpanel-head {
   display: flex;
@@ -915,7 +954,8 @@
   padding-block: var(--lp-sp-3);
   margin-bottom: var(--lp-sp-8);
 }
-.lp .lp-stationnav a {
+.lp .lp-stationnav a,
+.lp .lp-stationnav button {
   font-size: 0.8125rem;
   font-weight: 700;
   text-decoration: none;
@@ -925,12 +965,23 @@
   transition:
     background var(--lp-dur-fast) ease,
     color var(--lp-dur-fast) ease;
+  /* Button-specific resets so the two element types render identically —
+     .lp-stationnav is used both for real anchor-based scroll-spy nav
+     (e.g. "/"'s StationNav) and, since bond/page.tsx's BondTabs, real
+     <button role="tab"> controls. */
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
 }
-.lp .lp-stationnav a:hover {
+.lp .lp-stationnav a:hover,
+.lp .lp-stationnav button:hover {
   background: var(--lp-paper-tint);
   color: var(--lp-ink);
 }
-.lp .lp-stationnav a.active {
+.lp .lp-stationnav a.active,
+.lp .lp-stationnav button.active {
   background: var(--lp-mint);
   color: var(--lp-ink);
 }
@@ -992,81 +1043,56 @@
   height: 22px;
   display: grid;
   place-items: center;
-  /* Border-as-background technique (see --lp-clip-br-md-in1's comment):
-     this box's idle fill (--lp-paper-tint) sits almost flush against the
-     white/paper panel behind it, so the diagonal cut had nothing to
-     resolve against and read as a stray "chipped" notch rather than a
-     deliberate corner. The element's own background now IS a 1px border
-     (--lp-line), clipped to the outer cut shape; ::before below carries
-     the real idle fill, inset by the border width so the border renders
-     as a crisp uniform line all the way around the cut, same as every
-     other clip-cut surface in the system. */
-  background: var(--lp-line);
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+  /* Plain square, deliberately NOT clip-cut — this is the one mark in the
+     whole system small enough (22px) that a diagonal corner cut has too
+     little room to render crisply: at this size the cut reads as a stray
+     "chipped" notch rather than a deliberate corner, in both the earlier
+     borderless version AND the border-as-background version tried after
+     it (screenshotted and reported broken both times). Every other
+     clip-cut mark in the system is 30px+ (.lp-rrow .ri, .lp-fitem summary
+     .pm) — .lp-step-mark is the outlier being asked to carry a treatment
+     built for boxes 35%+ larger. A plain square with a simple border is a
+     legitimate, deliberate alternative here, not a fallback.
+     Idle state: a subtle border + pale fill, quiet "not reached yet" cue. */
+  background: var(--lp-paper-tint);
+  border: 1px solid var(--lp-line);
   font-size: 0.75rem;
   font-weight: 700;
   color: transparent;
   transition:
     background var(--lp-dur-fast) ease,
+    border-color var(--lp-dur-fast) ease,
     color var(--lp-dur-fast) ease;
 }
-.lp .lp-step-mark::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: var(--lp-paper-tint);
-  clip-path: polygon(
-    1px 1px,
-    calc(100% - 1px) 1px,
-    calc(100% - 1px) calc(100% - 8.41px),
-    calc(100% - 8.41px) calc(100% - 1px),
-    1px calc(100% - 1px)
-  );
-  transition: background var(--lp-dur-fast) ease;
-}
-/* Active/done/skipped/error fills are opaque, saturated state colors —
-   they already read clearly against paper without a border, so the mark
-   drops the idle border+inset once a row leaves the idle state: ::before
-   expands to fill the whole cut shape (no gap) and carries the state
-   color directly, while the element's own background goes transparent. */
+/* Active/done/skipped/error fills are opaque, saturated state colors that
+   already read clearly on their own — border drops out once a row leaves
+   idle, same reasoning the clip-path version used, just without the cut. */
 .lp .lp-step-row[data-state="active"] .lp-step-mark,
 .lp .lp-step-row[data-state="done"] .lp-step-mark,
 .lp .lp-step-row[data-state="skipped"] .lp-step-mark,
 .lp .lp-step-row[data-state="error"] .lp-step-mark {
-  background: transparent;
+  border-color: transparent;
   color: var(--lp-ink);
 }
-.lp .lp-step-row[data-state="active"] .lp-step-mark::before,
-.lp .lp-step-row[data-state="done"] .lp-step-mark::before,
-.lp .lp-step-row[data-state="skipped"] .lp-step-mark::before,
-.lp .lp-step-row[data-state="error"] .lp-step-mark::before {
-  inset: 0;
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
-}
 .lp .lp-step-row[data-state="active"] .lp-step-mark {
+  background: var(--lp-sun);
   animation: lp-step-pulse 1.1s var(--lp-ease-io) infinite;
 }
-.lp .lp-step-row[data-state="active"] .lp-step-mark::before {
-  background: var(--lp-sun);
-}
-.lp .lp-step-row[data-state="done"] .lp-step-mark::before {
+.lp .lp-step-row[data-state="done"] .lp-step-mark {
   background: var(--lp-mint);
 }
 .lp .lp-step-row[data-state="done"] .lp-step-mark::after {
   content: "✓";
 }
-.lp .lp-step-row[data-state="skipped"] .lp-step-mark::before {
+.lp .lp-step-row[data-state="skipped"] .lp-step-mark {
   background: var(--lp-sun-soft);
 }
 .lp .lp-step-row[data-state="skipped"] .lp-step-mark::after {
   content: "!";
 }
 .lp .lp-step-row[data-state="error"] .lp-step-mark {
-  color: #c2372b;
-}
-.lp .lp-step-row[data-state="error"] .lp-step-mark::before {
   background: var(--lp-coral-soft);
+  color: #c2372b;
 }
 .lp .lp-step-row[data-state="error"] .lp-step-mark::after {
   content: "×";
@@ -1793,6 +1819,15 @@
 .lp .lp-fitem--raw .body {
   padding: 0 2px var(--lp-sp-3);
   max-width: none;
+  /* Hard ceiling on a single opened disclosure's own height. Paired with
+     the ledger's <details name="ledger-raw-bytes"> accordion grouping
+     (only one row open at a time) so the panel's total growth is bounded
+     in both directions — previously neither existed: every row was an
+     independent <details> with no shared state (any number could be open
+     at once) and no ancestor set any max-height, so the panel just grew to
+     fit whatever was expanded, reported as "wildly increasing" in size. */
+  max-height: 260px;
+  overflow-y: auto;
 }
 .lp .lp-fitem--raw .body .lp-mrow {
   border-color: var(--lp-line-dark);

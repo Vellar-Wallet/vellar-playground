@@ -283,7 +283,7 @@ function StatusSnapshot({
         </div>
 
         {/* ---- Supported kinds panel ---- */}
-        <div className="lp-dpanel lp-dpanel--dark">
+        <div className="lp-dpanel lp-dpanel--dark lp-dpanel--dark-lime">
           <div className="lp-dpanel-head">
             <Eyebrow>Supported schemes &amp; networks</Eyebrow>
           </div>
@@ -311,7 +311,7 @@ function StatusSnapshot({
         </div>
 
         {/* ---- Sponsor signer panel ---- */}
-        <div className="lp-dpanel lp-dpanel--dark lp-dpanel--span2">
+        <div className="lp-dpanel lp-dpanel--dark lp-dpanel--dark-lime lp-dpanel--span2">
           <div className="lp-dpanel-head">
             <Eyebrow>Sponsor signer</Eyebrow>
             <span className="lp-lead" style={{ fontSize: "0.8rem" }}>

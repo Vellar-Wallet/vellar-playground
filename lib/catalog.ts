@@ -109,3 +109,36 @@ export function findResourcePrice(
   if (!accept?.amount || !/^\d+$/.test(accept.amount)) return null;
   return { amountAtomic: accept.amount, asset: accept.asset };
 }
+
+/**
+ * True when `resourceUrl`'s host is localhost, a loopback address, or a
+ * private-network IP — i.e. some other developer's local dev/test resource
+ * that got indexed into the shared facilitator's discovery catalog on
+ * testnet (confirmed live: `curl .../discovery/resources` genuinely returns
+ * entries like `http://localhost:4031/quote` today, registered by other
+ * people's local `x402 seller` test runs). This is a DISPLAY filter only —
+ * it hides these from the playground's own catalog UI, since showcasing
+ * strangers' throwaway local endpoints isn't appropriate for a public demo.
+ * It does not touch the facilitator's data or any other consumer of
+ * `fetchCatalog()` (e.g. `/api/session/create`'s price lookup, which must
+ * keep seeing the real, unfiltered catalog to price correctly).
+ */
+export function isLocalOrPrivateResource(resourceUrl: string): boolean {
+  let host: string;
+  try {
+    host = new URL(resourceUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host === "localhost" || host === "::1" || host === "0.0.0.0") return true;
+  // IPv4 loopback (127.0.0.0/8) and RFC 1918 private ranges.
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    if (a === 127) return true; // 127.0.0.0/8
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  }
+  return false;
+}
