@@ -548,13 +548,13 @@
    keeps the label TRULY centered on the full header width regardless of
    the logo's own rendered width, not just centered in the leftover space
    next to it. */
-/* Left-aligned logo+label lockup, right-aligned wallet status pill — not the
-   earlier centered-label layout (a 3-column grid with a matching empty
-   spacer column standing in for the pill's future space). The wallet pill
-   now genuinely occupies that space instead of being reserved-but-empty, so
-   centering the label against it would need the pill's own width mirrored
-   on the left, which a logo lockup of fixed width can't do. Same
-   left-lockup/right-status header pattern rail402's own playground uses. */
+/* Logo on the left, "Playground" genuinely centered on the header, wallet
+   status pill on the right — a 3-column grid (auto | 1fr-centered | auto)
+   with the two outer columns free to size to their own content and the
+   middle column centering its text regardless of how wide the pill gets
+   (idle/ready/error states differ). Flex + justify-content:space-between
+   (the earlier layout) can't do this: it centers the GAP between two
+   siblings, not a third element against two unequal-width ones. */
 .lp .lp-page-header {
   position: sticky;
   top: 0;
@@ -565,28 +565,25 @@
      top offset below), so the header stays the topmost sticky layer. */
   z-index: 40;
   height: 64px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: var(--lp-sp-4);
   padding-inline: var(--lp-gutter);
   background: var(--lp-paper);
   border-bottom: 1px solid var(--lp-line);
 }
-.lp .lp-page-brand-group {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--lp-sp-3);
-  min-width: 0;
-}
 .lp .lp-page-brand {
   display: inline-flex;
   align-items: center;
+  justify-self: start;
   text-decoration: none;
   color: var(--lp-ink);
-  flex: none;
+  min-width: 0;
 }
 .lp .lp-page-brand-label {
+  grid-column: 2;
+  justify-self: center;
   font-family: var(--lp-display);
   font-weight: 700;
   font-size: 1.0625rem;
@@ -596,7 +593,9 @@
 
 /* ---- Wallet status pill (header, right side) ------------------- */
 .lp .lp-wallet-pill {
-  flex: none;
+  /* justify-self, not flex: none -- this is now a direct grid child of
+     .lp-page-header's 3rd (auto) column, not a flex sibling. */
+  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: 6px;

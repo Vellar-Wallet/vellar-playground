@@ -99,39 +99,39 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
   return (
     <>
-      {/* ---- Page-level header (all widths) — logo only, sits ABOVE the
-          sidebar+content shell, matching docs.vellar.xyz's reference: the
-          sidebar card itself has no brand row inside it, the wordmark is a
-          separate header above everything. Desktop shows the mark alone
-          (no "Vellar Playground" text — moved out of the sidebar entirely,
-          per the reference); the narrow/mobile variant keeps a short label
-          next to it since there's no sidebar wordmark to rely on there. ---- */}
+      {/* ---- Page-level header (all widths) — sits ABOVE the sidebar+content
+          shell, matching docs.vellar.xyz's reference: the sidebar card
+          itself has no brand row inside it, the wordmark/label are a
+          separate header above everything. Logo on the left, "Playground"
+          centered (see the grid comment below), wallet pill on the right. ---- */}
       <header className="lp-page-header">
-        <div className="lp-page-brand-group">
-          <Link href="/" className="lp-page-brand" aria-label="Vellar Playground — home">
-            {/* logo-mark.png's real source is 2000x989 (~2.02:1), not square.
-                width/height here MUST match that real ratio at the size we
-                actually render (height:32 -> width~=65) -- next/image uses
-                these props to decide how large a source raster to generate
-                for each DPR variant. The old width={32} height={32} lied
-                about the source being square, so Next generated a needlessly
-                tiny 32x16 raster (correctly aspect-corrected, just far
-                smaller than the ~65x32 it was then stretched to via the CSS
-                override below) -- a small image upscaled ~2x by the browser,
-                which is what actually produced the blur, not a bad source
-                asset. Confirmed by fetching the compiled /_next/image output
-                directly before this fix: it was 32x16, not 65x32. */}
-            <Image src="/logo-mark.png" alt="" width={65} height={32} priority style={{ height: 32, width: "auto" }} />
-          </Link>
-          <span className="lp-page-brand-label">Vellar Playground</span>
-        </div>
+        <Link href="/" className="lp-page-brand" aria-label="Playground — home">
+          {/* logo-mark.png's real source is 2000x989 (~2.02:1), not square.
+              width/height here MUST match that real ratio at the size we
+              actually render (height:32 -> width~=65) -- next/image uses
+              these props to decide how large a source raster to generate
+              for each DPR variant. The old width={32} height={32} lied
+              about the source being square, so Next generated a needlessly
+              tiny 32x16 raster (correctly aspect-corrected, just far
+              smaller than the ~65x32 it was then stretched to via the CSS
+              override below) -- a small image upscaled ~2x by the browser,
+              which is what actually produced the blur, not a bad source
+              asset. Confirmed by fetching the compiled /_next/image output
+              directly before this fix: it was 32x16, not 65x32. */}
+          <Image src="/logo-mark.png" alt="" width={65} height={32} priority style={{ height: 32, width: "auto" }} />
+        </Link>
+        {/* Genuinely centered on the header, independent of the wallet
+            pill's variable width (idle/ready/error states differ) — a
+            3-column grid (brand | label | pill) with matching 1fr side
+            columns, not a flex layout, since flex alone can't center
+            against two unequal-width siblings. absolute-centering was the
+            other option; grid was chosen so the label still participates
+            in layout (no risk of overlapping the brand mark or pill on
+            very narrow widths). */}
+        <span className="lp-page-brand-label">Playground</span>
         {/* Wallet status pill — always visible in the header regardless of
             which page is active, matching rail402's reference layout
-            (screenshot: "no wallet, made on first pay ▾" top-right). Moved
-            the logo+label lockup from a centered layout (a 3-column grid
-            with a matching empty spacer column) to a plain left-aligned
-            group so this pill has real room on the right without fighting
-            that centering — same header-pattern rail402 itself uses. */}
+            (screenshot: "no wallet, made on first pay ▾" top-right). */}
         <WalletStatusPill />
       </header>
 
