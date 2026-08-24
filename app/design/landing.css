@@ -2102,33 +2102,48 @@
 /* Plain square, no corner cut -- per standing direction: small icon/
    toggle marks in this system read as "chipped"/unbalanced at this size
    (see .lp-step-mark's own doc comment for the same call).
-   display:grid + place-items:center -- previously missing here (present
-   on the light-section .lp-fitem's own .pm, just never copied over to
-   this variant), so the "+"/"−" glyph rendered off-center inside its own
-   square, most visible on the small 18px box this variant uses.
-   font-size:0 + a ::before glyph, not a real "−" swapped into the JSX
-   text: every call site's JSX renders the literal text "+" as .pm's child
-   (7 sites across 5 files), and none of them can read the <details>'s
-   `open` state to conditionally render "−" -- these are deliberately
-   uncontrolled native disclosures, no JS state to hand down. Hiding the
-   text node and driving both glyphs from CSS content (toggled purely by
-   the [open] attribute selector below) fixes every call site at once
-   without touching any of their JSX. Marker rotation removed entirely --
-   open/closed is now conveyed by the glyph itself (+ vs −) and the fill
-   color change, not a spin. */
+
+   The visible "+"/"−" glyph is ENTIRELY a ::before pseudo-element, not
+   the literal "+" text every call site's JSX renders as .pm's child (7
+   sites across 5 files) -- none of them can read the parent <details>'s
+   `open` state to conditionally render "−" (deliberately uncontrolled
+   native disclosures, no JS state to hand down), so both glyphs are
+   driven from CSS `content`, toggled purely by the [open] attribute
+   selector below. This fixes every call site from one rule, no JSX
+   changes needed anywhere.
+
+   .pm itself stays OUT of grid/flex layout on purpose -- a first attempt
+   put display:grid + place-items:center directly on .pm to center the
+   glyph, and that broke visibly (caught from a screenshot): CSS Grid does
+   NOT merge a pseudo-element's generated content with an element's own
+   text child, so the real (font-size:0, but still LAID OUT as a grid
+   item) "+" text node and the ::before pseudo-element became two
+   separate, independently auto-placed grid cells -- both rendered, at
+   different apparent sizes, instead of one. Centering happens on the
+   PSEUDO-ELEMENT itself instead (position:absolute; inset:0; then its own
+   grid), which has no sibling to compete with. */
 .lp .lp-fitem--raw summary .pm {
-  position: relative; /* anchors the ::before glyph */
-  display: grid;
-  place-items: center;
+  /* inline-block, not the default inline a bare <span> gets -- an inline
+     box ignores explicit width/height entirely (per spec), which would
+     collapse this to whatever the (zero-font-size) text renders as,
+     leaving ::before's position:absolute; inset:0 sized against nothing.
+     inline-block is enough to make width/height apply without competing
+     with ::before for grid/flex placement the way display:grid did. */
+  display: inline-block;
+  position: relative; /* anchors the ::before glyph below */
   width: 18px;
   height: 18px;
-  font-size: 0;
+  font-size: 0; /* hides the real "+" text node -- ::before supplies the only visible glyph */
   background: var(--lp-line);
   color: var(--lp-ink);
   transition: background var(--lp-dur-fast) ease, color var(--lp-dur-fast) ease;
 }
 .lp .lp-fitem--raw summary .pm::before {
   content: "+";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   font-size: 0.75rem;
 }
 .lp .lp-fitem--raw[open] summary .pm {
