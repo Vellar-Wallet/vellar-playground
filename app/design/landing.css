@@ -2064,12 +2064,24 @@
 }
 
 /* Payment ledger's per-step "raw wire bytes" disclosure (Station 1) — the
-   FAQ section's .lp-fitem pattern (rotating "+" marker), adapted to sit
-   inside the dark .lp-trace-panel and at a much smaller scale than a
-   full-width FAQ entry: compact summary type, no large padding, dark-panel
-   colors instead of the light-section defaults. */
+   FAQ section's .lp-fitem pattern ("+"/"−" marker), adapted at a much
+   smaller scale than a full-width FAQ entry: compact summary type, no
+   large padding.
+   BASE rule is light-PANEL-safe (plain ink tokens, which read correctly
+   on white and on every light --soft tint alike: --mint-soft, --coral-soft,
+   --sun-soft, --lime-soft) — this component is used on both light panels
+   (/break/catalog's coral attack list) and dark ones (/pay's ledger,
+   /verify, console, /break/payments), and until now only had dark-panel
+   colors with no light fallback: hardcoded --on-dark/--line-dark tokens
+   rendered as near-white text on a light coral background wherever it
+   sat inside a LIGHT .lp-dpanel, illegible. The .lp-dpanel--dark override
+   block further below restores the on-dark values for the dark-panel
+   case — same inversion-of-polarity fix already applied elsewhere in this
+   file (.lp-verified, .lp-step-row) for the identical class of bug, just
+   with the panel colors swapped since this component defaulted dark
+   instead of defaulting light. */
 .lp .lp-fitem--raw {
-  border-bottom: 1px solid var(--lp-line-dark);
+  border-bottom: 1px solid var(--lp-line);
   margin-bottom: 2px;
 }
 .lp .lp-fitem--raw summary {
@@ -2077,71 +2089,131 @@
   font-family: var(--lp-mono);
   font-weight: 700;
   font-size: 0.75rem;
-  color: var(--lp-on-dark-faint);
+  /* --lp-ink-soft, not the even-quieter --lp-ink-faint: checked, faint's
+     0.55-alpha flattens to only 3.12:1 against --lp-coral-soft at this
+     small 0.75rem size -- fails AA. --ink-soft (0.74 alpha) clears 5.12:1
+     against the same background while still reading as de-emphasized
+     relative to the solid-ink hover/open states below. */
+  color: var(--lp-ink-soft);
 }
 .lp .lp-fitem--raw summary:hover {
-  color: var(--lp-on-dark);
+  color: var(--lp-ink);
 }
+/* Plain square, no corner cut -- per standing direction: small icon/
+   toggle marks in this system read as "chipped"/unbalanced at this size
+   (see .lp-step-mark's own doc comment for the same call).
+   display:grid + place-items:center -- previously missing here (present
+   on the light-section .lp-fitem's own .pm, just never copied over to
+   this variant), so the "+"/"−" glyph rendered off-center inside its own
+   square, most visible on the small 18px box this variant uses.
+   font-size:0 + a ::before glyph, not a real "−" swapped into the JSX
+   text: every call site's JSX renders the literal text "+" as .pm's child
+   (7 sites across 5 files), and none of them can read the <details>'s
+   `open` state to conditionally render "−" -- these are deliberately
+   uncontrolled native disclosures, no JS state to hand down. Hiding the
+   text node and driving both glyphs from CSS content (toggled purely by
+   the [open] attribute selector below) fixes every call site at once
+   without touching any of their JSX. Marker rotation removed entirely --
+   open/closed is now conveyed by the glyph itself (+ vs −) and the fill
+   color change, not a spin. */
 .lp .lp-fitem--raw summary .pm {
-  /* Plain square, no corner cut -- per standing direction: small icon/
-     toggle marks in this system read as "chipped"/unbalanced at this
-     size (see .lp-step-mark's own doc comment for the same call). */
+  position: relative; /* anchors the ::before glyph */
+  display: grid;
+  place-items: center;
   width: 18px;
   height: 18px;
-  font-size: 0.75rem;
-  background: var(--lp-line-dark);
-  color: var(--lp-on-dark);
-  transition: transform var(--lp-dur-fast) ease, background var(--lp-dur-fast) ease, color var(--lp-dur-fast) ease;
+  font-size: 0;
+  background: var(--lp-line);
+  color: var(--lp-ink);
+  transition: background var(--lp-dur-fast) ease, color var(--lp-dur-fast) ease;
 }
-/* Rotating the "+" glyph 45° reads as an "×" (close) once expanded — a
-   clear, JS-free "click again to collapse" affordance. Previously this
-   only changed background color when open, with no visual cue that the
-   card had become collapsible again. */
+.lp .lp-fitem--raw summary .pm::before {
+  content: "+";
+  font-size: 0.75rem;
+}
 .lp .lp-fitem--raw[open] summary .pm {
   background: var(--lp-mint);
   color: var(--lp-ink);
-  transform: rotate(45deg);
+}
+.lp .lp-fitem--raw[open] summary .pm::before {
+  content: "−";
 }
 .lp .lp-fitem--raw .body {
   padding: 0 2px var(--lp-sp-3);
   max-width: none;
-  /* .lp-fitem .body's base rule sets color: var(--lp-ink-soft) — a
-     translucent dark-green built for the paper-white FAQ-style
-     disclosures .lp-fitem is normally used for. .lp-fitem--raw sits on a
-     dark panel instead, and until now nothing overrode this inherited
-     color, so any element inside .body with no color of its own (e.g.
-     MonoRow's bare <b> value when no tone="ok"/"bad" is given) rendered
-     as dark, translucent green text on the same dark-green panel —
-     effectively illegible. Same on-dark substitution this file already
-     makes for .lp-step-row/.lp-step-note/.lp-mrow span for the identical
-     reason, just one level higher (the .body container itself, not a
-     specific child), so it covers every plain-text child by inheritance
-     rather than needing a rule per element.
-     Hard ceiling on a single opened disclosure's own height. Paired with
+  /* Hard ceiling on a single opened disclosure's own height. Paired with
      the ledger's <details name="ledger-raw-bytes"> accordion grouping
      (only one row open at a time) so the panel's total growth is bounded
      in both directions — previously neither existed: every row was an
      independent <details> with no shared state (any number could be open
      at once) and no ancestor set any max-height, so the panel just grew to
      fit whatever was expanded, reported as "wildly increasing" in size. */
-  color: var(--lp-on-dark-soft);
+  color: var(--lp-ink-soft);
   max-height: 260px;
   overflow-y: auto;
 }
 .lp .lp-fitem--raw .body .lp-mrow {
-  border-color: var(--lp-line-dark);
+  border-color: var(--lp-line);
   font-size: 0.75rem;
 }
 .lp .lp-fitem--raw .body .lp-mrow span {
-  color: var(--lp-on-dark-soft);
+  color: var(--lp-ink-soft);
 }
 .lp .lp-fitem--raw .body .lp-mrow b {
-  color: var(--lp-on-dark);
+  color: var(--lp-ink);
 }
 .lp .lp-fitem--raw .body .lp-mrow b.ok {
-  color: var(--lp-mint);
+  /* Deep forest-green, not --lp-mint (a bright on-dark accent -- checked:
+     only 1.33:1 against --lp-coral-soft, far below AA). This value clears
+     4.5:1 against every light panel background this component can sit on
+     (paper, paper-tint, and all four -soft tints), confirmed by computing
+     WCAG contrast ratios directly against each. */
+  color: #0c6b3f;
 }
 .lp .lp-fitem--raw .body .lp-mrow b.bad {
+  /* Deep brick-red, not --lp-coral (2.32:1 against --lp-coral-soft --
+     fails AA; --lp-coral is tuned as a solid-fill accent, not body text on
+     its own -soft tint). Same contrast-checked approach as .ok above. */
+  color: #b3261e;
+}
+/* ---- Dark-panel override (the ORIGINAL colors this component always
+   had, before the light-panel-safe base above existed) — restores
+   --on-dark-family tokens for every call site that actually sits inside
+   .lp-dpanel--dark (/pay's ledger, /verify, console, /break/payments'
+   attack tracks). Nothing else about this component changes between the
+   two contexts, so this block only re-points colors, not layout. */
+.lp .lp-dpanel--dark .lp-fitem--raw {
+  border-bottom-color: var(--lp-line-dark);
+}
+.lp .lp-dpanel--dark .lp-fitem--raw summary {
+  color: var(--lp-on-dark-faint);
+}
+.lp .lp-dpanel--dark .lp-fitem--raw summary:hover {
+  color: var(--lp-on-dark);
+}
+.lp .lp-dpanel--dark .lp-fitem--raw summary .pm {
+  background: var(--lp-line-dark);
+  color: var(--lp-on-dark);
+}
+.lp .lp-dpanel--dark .lp-fitem--raw[open] summary .pm {
+  color: var(--lp-ink); /* --lp-mint fill (set in the base [open] rule above) stays; only the glyph's own ink-on-mint color needs restating since .lp-dpanel--dark's own `color` inheritance would otherwise win */
+}
+.lp .lp-dpanel--dark .lp-fitem--raw .body {
+  color: var(--lp-on-dark-soft);
+}
+.lp .lp-dpanel--dark .lp-fitem--raw .body .lp-mrow {
+  border-color: var(--lp-line-dark);
+}
+.lp .lp-dpanel--dark .lp-fitem--raw .body .lp-mrow span {
+  color: var(--lp-on-dark-soft);
+}
+.lp .lp-dpanel--dark .lp-fitem--raw .body .lp-mrow b {
+  color: var(--lp-on-dark);
+}
+.lp .lp-dpanel--dark .lp-fitem--raw .body .lp-mrow b.ok {
+  color: var(--lp-mint);
+}
+.lp .lp-dpanel--dark .lp-fitem--raw .body .lp-mrow b.bad {
   color: #ff9d94; /* coral shifted for AA contrast against the dark panel — same reasoning as --lp-mint above for .ok, since #c2372b (the light-surface "bad" shade) is far too dark to read here */
 }
 
