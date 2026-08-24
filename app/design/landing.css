@@ -2080,7 +2080,7 @@
    file (.lp-verified, .lp-step-row) for the identical class of bug, just
    with the panel colors swapped since this component defaulted dark
    instead of defaulting light. */
-.lp .lp-fitem--raw {
+.lp .lp-fitem.lp-fitem--raw {
   border-bottom: 1px solid var(--lp-line);
   margin-bottom: 2px;
 }
@@ -2122,13 +2122,27 @@
    different apparent sizes, instead of one. Centering happens on the
    PSEUDO-ELEMENT itself instead (position:absolute; inset:0; then its own
    grid), which has no sibling to compete with. */
-.lp .lp-fitem--raw summary .pm {
-  /* inline-block, not the default inline a bare <span> gets -- an inline
+.lp .lp-fitem.lp-fitem--raw summary .pm {
+  /* .lp-fitem.lp-fitem--raw (both classes chained), NOT plain .lp-fitem--raw
+     -- every real call site's <details> carries BOTH classes together
+     (class="lp-fitem lp-fitem--raw"), and .lp-fitem's own "summary .pm"
+     rule (30px, sun-filled, further down this file) has the EXACT SAME
+     specificity as a plain ".lp-fitem--raw summary .pm" selector. Tied
+     specificity falls back to source order, and .lp-fitem's rule comes
+     later in the file -- so it silently won on every real page, no
+     matter what this rule said. Confirmed by rendering the ACTUAL
+     compiled CSS bundle (not a hand-copied approximation) via headless
+     Chrome: a 30px sun-yellow box, not this rule's 18px ink box, is what
+     shipped in the previous two attempts at this fix. Chaining both
+     classes raises specificity above plain .lp-fitem's rules and makes
+     this win unconditionally, independent of file order.
+     inline-block, not the default inline a bare <span> gets -- an inline
      box ignores explicit width/height entirely (per spec), which would
      collapse this to whatever the (zero-font-size) text renders as,
      leaving ::before's position:absolute; inset:0 sized against nothing.
      inline-block is enough to make width/height apply without competing
-     with ::before for grid/flex placement the way display:grid did. */
+     with ::before for grid/flex placement the way display:grid did (see
+     that failure mode's own note further down). */
   display: inline-block;
   position: relative; /* anchors the ::before glyph below */
   width: 18px;
@@ -2138,7 +2152,7 @@
   color: var(--lp-ink);
   transition: background var(--lp-dur-fast) ease, color var(--lp-dur-fast) ease;
 }
-.lp .lp-fitem--raw summary .pm::before {
+.lp .lp-fitem.lp-fitem--raw summary .pm::before {
   content: "+";
   position: absolute;
   inset: 0;
@@ -2146,11 +2160,20 @@
   place-items: center;
   font-size: 0.75rem;
 }
-.lp .lp-fitem--raw[open] summary .pm {
+.lp .lp-fitem.lp-fitem--raw[open] summary .pm {
   background: var(--lp-mint);
   color: var(--lp-ink);
+  /* .lp-fitem[open] summary .pm (the plain FAQ variant, elsewhere in this
+     file) sets `rotate: 45deg` on the exact same element -- `rotate` is
+     its own CSS property, not part of `background`/`color` above, so it
+     was never overridden by anything in this rule and kept applying on
+     top: a 45°-rotated square with a mint fill and a "−" glyph inside
+     reads as a spinning diamond, not a flat square with a minus sign.
+     Explicit `rotate: none` cancels it. Caught this from an actual
+     screenshot of the real compiled page, not assumed. */
+  rotate: none;
 }
-.lp .lp-fitem--raw[open] summary .pm::before {
+.lp .lp-fitem.lp-fitem--raw[open] summary .pm::before {
   content: "−";
 }
 .lp .lp-fitem--raw .body {
