@@ -109,9 +109,9 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           centered (see the grid comment below), wallet pill on the right. ---- */}
       <header className="lp-page-header">
         <Link href="/" className="lp-page-brand" aria-label="Playground — home">
-          {/* logo-mark.png's real source is 2000x989 (~2.02:1), not square.
+          {/* logo-mark.png's real source is 1400x540 (~2.59:1), not square.
               width/height here MUST match that real ratio at the size we
-              actually render (height:32 -> width~=65) -- next/image uses
+              actually render (height:55 -> width~=143) -- next/image uses
               these props to decide how large a source raster to generate
               for each DPR variant. The old width={32} height={32} lied
               about the source being square, so Next generated a needlessly
@@ -121,7 +121,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               which is what actually produced the blur, not a bad source
               asset. Confirmed by fetching the compiled /_next/image output
               directly before this fix: it was 32x16, not 65x32. */}
-          <Image src="/logo-mark.png" alt="" width={65} height={32} priority style={{ height: 32, width: "auto" }} />
+          <Image src="/logo-mark.png" alt="" width={143} height={55} priority style={{ height: 55, width: "auto" }} />
         </Link>
         {/* Genuinely centered on the header, independent of the wallet
             pill's variable width (idle/ready/error states differ) — a
