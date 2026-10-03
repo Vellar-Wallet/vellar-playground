@@ -156,11 +156,17 @@ describe("POST /api/verify-ownership — no session involvement", () => {
       // The exact bug report this field/copy exists to fix: rendering a
       // payTo match on an UNVERIFIED resource identically to a durably
       // VERIFIED one read as "it says verified" to a real user, even
-      // though verdictText's own wording was hedged. Confirmed live
-      // against the real catalog (not assumed): "hash" currently sits at
-      // ownershipState "unverified" with several real settlements, so a
-      // match here is exactly the case that used to read as confusing.
-      const res = await POST(new Request("http://localhost/api/verify-ownership", { method: "POST", body: JSON.stringify({ id: "hash" }) }));
+      // though verdictText's own wording was hedged. Confirmed live against
+      // the real catalog (not assumed): "inspect" currently sits at
+      // ownershipState "unverified" (its catalog entry's path carries the
+      // literal, unsubstituted ":address" placeholder — see
+      // lib/verifiable-resources.ts's own doc comment on why that resource
+      // never settles under the exact path this check fetches), so a match
+      // here is exactly the case that used to read as confusing. Other
+      // resources on this allow-list (e.g. "hash") settle and re-verify
+      // quickly enough on the live facilitator that they don't reliably stay
+      // unverified across repeated test runs — "inspect" is the one that does.
+      const res = await POST(new Request("http://localhost/api/verify-ownership", { method: "POST", body: JSON.stringify({ id: "inspect" }) }));
       expect(res.status).toBe(200);
       const { events } = await readNdjsonStream(res);
 

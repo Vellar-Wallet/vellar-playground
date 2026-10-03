@@ -33,8 +33,16 @@ export interface CatalogItem {
   [key: string]: unknown;
 }
 
+export interface CatalogPagination {
+  limit?: number;
+  offset?: number;
+  total?: number;
+  [key: string]: unknown;
+}
+
 export interface CatalogResponse {
   items?: CatalogItem[];
+  pagination?: CatalogPagination;
   [key: string]: unknown;
 }
 
@@ -58,15 +66,16 @@ export class CatalogFetchError extends Error {
   }
 }
 
-/**
- * Fetch and parse the facilitator's discovery catalog. Throws
- * `CatalogFetchError` on any failure (unreachable, non-2xx, timeout,
- * unparseable body) — same convention as lib/stellar.ts: callers are
- * responsible for turning this into a human-readable response or a graceful
- * fallback, never surfacing `.message` verbatim to an HTTP caller.
- */
-export async function fetchCatalog(): Promise<CatalogResponse> {
-  const url = `${FACILITATOR_URL.replace(/\/+$/, "")}/discovery/resources`;
+// Hard ceiling on how many pages fetchCatalog() will walk, so a misbehaving
+// or malicious facilitator (e.g. `pagination.total` far exceeding reality)
+// can't turn one call into an unbounded fetch loop. 2000 resources at the
+// observed page size of 20-100 is already generous headroom over the
+// catalog's real size (confirmed live: 28 entries as of this writing).
+const MAX_CATALOG_PAGES = 20;
+
+async function fetchCatalogPage(offset: number): Promise<CatalogResponse> {
+  const base = `${FACILITATOR_URL.replace(/\/+$/, "")}/discovery/resources`;
+  const url = offset > 0 ? `${base}?offset=${offset}` : base;
   let res: Response;
   try {
     res = await fetch(url, { signal: AbortSignal.timeout(FACILITATOR_TIMEOUT_MS) });
@@ -89,6 +98,54 @@ export async function fetchCatalog(): Promise<CatalogResponse> {
       `facilitator catalog response was not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+}
+
+/**
+ * Fetch and parse the facilitator's FULL discovery catalog, walking every
+ * page of `/discovery/resources` and merging their `items[]` into one array.
+ *
+ * `GET /discovery/resources` is paginated (`{ items, pagination: { limit,
+ * offset, total } }`, confirmed live: default page size 20) — a single
+ * unparameterized fetch silently truncates to page 1, which is exactly how
+ * the Railway-migrated catalog's newest entries (offset 20+) went invisible
+ * to this app even though `/health`'s `catalogSize` showed them present.
+ * Every caller (the `/api/catalog` proxy, `/api/verify-ownership`'s
+ * compare_catalog step, `/api/session/create`'s price lookup) needs the
+ * complete set, not just the first page, so pagination is handled once here
+ * rather than risking a second caller re-introducing the same truncation.
+ *
+ * Returns the shape of the FIRST page's response (preserving any top-level
+ * fields like `x402Version`) with `items` replaced by the full merged list
+ * and `pagination` left as the first page reported it (informational only —
+ * callers that care about `items.length` get the true total via the array).
+ * Throws `CatalogFetchError` on any page's failure (unreachable, non-2xx,
+ * timeout, unparseable body) — same convention as lib/stellar.ts: callers
+ * are responsible for turning this into a human-readable response or a
+ * graceful fallback, never surfacing `.message` verbatim to an HTTP caller.
+ */
+export async function fetchCatalog(): Promise<CatalogResponse> {
+  const first = await fetchCatalogPage(0);
+  const items = Array.isArray(first.items) ? [...first.items] : [];
+
+  const limit = first.pagination?.limit;
+  const total = first.pagination?.total;
+  const hasMorePages =
+    typeof limit === "number" && limit > 0 && typeof total === "number" && items.length < total;
+
+  if (hasMorePages) {
+    let offset = items.length;
+    let pagesFetched = 1;
+    while (offset < total && pagesFetched < MAX_CATALOG_PAGES) {
+      const page = await fetchCatalogPage(offset);
+      const pageItems = Array.isArray(page.items) ? page.items : [];
+      if (pageItems.length === 0) break; // defensive: avoid looping forever on a stuck offset
+      items.push(...pageItems);
+      offset += pageItems.length;
+      pagesFetched += 1;
+    }
+  }
+
+  return { ...first, items };
 }
 
 /**
