@@ -15,7 +15,7 @@
  * own narrow, defensive parsing of just the fields it needs.
  */
 
-import { FACILITATOR_URL } from "@/lib/config";
+import { FACILITATOR_URL, SELLER_URL } from "@/lib/config";
 
 const FACILITATOR_TIMEOUT_MS = 15_000;
 
@@ -198,4 +198,33 @@ export function isLocalOrPrivateResource(resourceUrl: string): boolean {
     if (a === 192 && b === 168) return true; // 192.168.0.0/16
   }
   return false;
+}
+
+/**
+ * True when `resourceUrl`'s origin matches the configured SELLER_URL — i.e.
+ * it's actually the demo seller this playground pays against, not some other
+ * entry that happens to be sitting in the SAME shared, public testnet
+ * facilitator catalog (which is cumulative across everyone who has ever
+ * settled against it: old deployments of this same demo seller under a
+ * previous host, unrelated services like the facilitator's own backend, other
+ * developers' projects — all show up in `/discovery/resources` forever, with
+ * no expiry). Confirmed live after the Render→Railway seller migration: the
+ * catalog kept every `vellar-seller-demo.onrender.com/*` entry from before
+ * the move, alongside the new `vellar-seller-demo-testnet-production.up.
+ * railway.app/*` ones, so an unfiltered catalog grid showed dead Pay buttons
+ * pointing at a host nothing listens on anymore.
+ *
+ * This is a DISPLAY filter only, same convention as `isLocalOrPrivateResource`
+ * right above: it hides non-seller entries from the playground's own
+ * catalog/pay UI, it does not touch the facilitator's data or any other
+ * consumer of `fetchCatalog()` (e.g. `/api/attack/catalog`'s SSRF/
+ * displacement demos, which deliberately need to see the FULL shared catalog,
+ * including other hosts, to make their point).
+ */
+export function isOurSellerResource(resourceUrl: string): boolean {
+  try {
+    return new URL(resourceUrl).origin === new URL(SELLER_URL).origin;
+  } catch {
+    return false;
+  }
 }

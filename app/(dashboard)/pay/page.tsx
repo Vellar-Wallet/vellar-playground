@@ -18,7 +18,7 @@ import { Eyebrow, LpActionButton, MonoRow, MonoRows, PayUnverifiedConfirm } from
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 import { FACILITATOR_URL, SELLER_URL } from "@/lib/config";
-import { isLocalOrPrivateResource } from "@/lib/catalog";
+import { isLocalOrPrivateResource, isOurSellerResource } from "@/lib/catalog";
 import { readLastPayment, readSession, writeLastPayment, writeQuestLevel, writeSession } from "@/lib/local-storage";
 import { useWallet } from "@/lib/wallet-context";
 
@@ -153,7 +153,9 @@ export default function PayPage() {
         return;
       }
       const rawItems: CatalogItem[] = Array.isArray(body?.items) ? body.items : [];
-      const items = rawItems.filter((item) => !isLocalOrPrivateResource(item.resource));
+      const items = rawItems.filter(
+        (item) => !isLocalOrPrivateResource(item.resource) && isOurSellerResource(item.resource),
+      );
       setCatalog({ status: "ready", items });
     } catch {
       setCatalog({ status: "error", message: "We couldn't reach the server. Please check your connection and try again." });
