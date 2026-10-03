@@ -5,16 +5,15 @@
  * `/discovery/resources`. Kept as a separate small module (rather than
  * folding into catalog.ts) because these endpoints have nothing in common
  * with the catalog-price-lookup callers catalog.ts also serves — but the
- * cold-start/timeout handling and error shape are intentionally identical,
- * copied from that module's proven pattern rather than reinvented.
+ * timeout handling and error shape are intentionally identical, copied from
+ * that module's proven pattern rather than reinvented.
  *
  * All three of `/api/health`, `/api/supported`, `/api/search` proxy through
  * this — same design rationale as `/api/catalog`'s doc comment: live CORS
  * checks (`curl -H "Origin: ..."`) showed `access-control-allow-origin: *`
  * on every one of these endpoints, so a server proxy isn't required to work
- * around CORS. It exists anyway to centralize the ~45s cold-start/timeout
- * handling in one place, consistent with how `/api/catalog` already made
- * that same call — see this step's report for the live curl evidence.
+ * around CORS. It exists anyway to centralize timeout handling in one place,
+ * consistent with how `/api/catalog` already made that same call.
  *
  * None of these route handlers read the session cookie or touch
  * lib/session.ts — they proxy unauthenticated, public facilitator data only.
@@ -22,7 +21,7 @@
 
 import { FACILITATOR_URL } from "@/lib/config";
 
-const FACILITATOR_TIMEOUT_MS = 60_000;
+const FACILITATOR_TIMEOUT_MS = 15_000;
 
 /** Machine-readable reason a facilitator GET failed — same convention as
  *  `lib/catalog.ts`'s `CatalogFetchError`. */

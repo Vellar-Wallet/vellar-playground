@@ -62,7 +62,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const VALID_CHECK_METHODS = new Set(["reason_code", "http_status", "poll_diff", "content_inspection"]);
-const DEMO_RESOURCE_URL = "https://vellar-seller-demo.onrender.com/quote";
+const DEMO_RESOURCE_URL = "https://vellar-seller-demo-testnet-production.up.railway.app/quote";
 
 interface CatalogTrust {
   ownershipState?: string;
@@ -94,9 +94,9 @@ interface CatalogItem {
 // http://localhost:3000` (permissive, request-origin-echoing CORS on
 // Horizon's public testnet reads) — so a direct browser fetch works with no
 // server proxy needed. This mirrors GET /api/catalog's own documented
-// finding for the facilitator's CORS (a proxy there exists for cold-start
-// handling, not because CORS blocked it) — Horizon has no comparable
-// cold-start concern, so no proxy is added here at all.
+// finding for the facilitator's CORS (a proxy there exists to centralize
+// timeout handling, not because CORS blocked it) — no proxy is added here
+// at all.
 
 type HorizonCheck = { status: "idle" } | { status: "checking" } | { status: "done"; ok: boolean; checkedAt: number } | { status: "error"; message: string };
 

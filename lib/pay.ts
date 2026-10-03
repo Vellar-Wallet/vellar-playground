@@ -28,7 +28,6 @@ import { x402Client } from "@x402/core/client";
 import { x402HTTPClient } from "@x402/core/http";
 import { ExactStellarScheme } from "@x402/stellar/exact/client";
 import { createEd25519Signer } from "@x402/stellar";
-import { fetchWithColdStartNotice } from "@/lib/fetch-with-cold-start-notice";
 
 const NETWORK = "stellar:testnet";
 const FETCH_TIMEOUT_MS = 30_000;
@@ -72,9 +71,6 @@ export class PaymentError extends Error {
 //   verify        (done only — no network call of its own, see route doc)
 //   settle        (active, then done or error — the real paid retry request)
 //
-// "waking_up" is emitted separately (zero or more times) only around the
-// step-1 GET, if the seller hasn't responded within 5s — see
-// `fetchWithColdStartNotice` below.
 
 export type PayStepName = "get_request" | "challenge" | "sign" | "verify" | "settle";
 export type PayStepStatus = "active" | "done" | "error";
@@ -96,7 +92,6 @@ export interface DecodedPaymentRequired {
 }
 
 export type PayProgressEvent =
-  | { step: "waking_up"; status: "active" }
   | { step: "get_request"; status: "active"; requestLine: string }
   | {
       step: "get_request";
@@ -164,21 +159,19 @@ const VERIFY_RESPONSE_NOTE =
  * `onEvent`, if provided, is invoked synchronously at each real step
  * boundary (see `PayProgressEvent`). It never receives the secret key.
  *
- * `getTimeoutMs` bounds the initial (step 1) unpaid GET specifically — the
- * "is the seller asleep" call. It defaults to the same 30s as every other
- * fetch in this module; the route handler overrides it to 90s to give a cold
- * Render.com free-tier instance room to wake up (see that route's doc
- * comment). Every other fetch in this function keeps the standard
- * `FETCH_TIMEOUT_MS` regardless of this parameter.
+ * `getTimeoutMs` bounds the initial (step 1) unpaid GET specifically. It
+ * defaults to the same 30s as every other fetch in this module; the route
+ * handler can override it (see that route's doc comment). Every other fetch
+ * in this function keeps the standard `FETCH_TIMEOUT_MS` regardless of this
+ * parameter.
  */
 export async function attemptPayment(
   secretKey: string,
   resourceUrl: string,
-  options?: { onEvent?: OnPayEvent; getTimeoutMs?: number; coldStartAfterMs?: number },
+  options?: { onEvent?: OnPayEvent; getTimeoutMs?: number },
 ): Promise<PayResult> {
   const onEvent = options?.onEvent;
   const getTimeoutMs = options?.getTimeoutMs ?? FETCH_TIMEOUT_MS;
-  const coldStartAfterMs = options?.coldStartAfterMs ?? 5_000;
 
   const signer = createEd25519Signer(secretKey, NETWORK);
   const client = new x402Client().register(NETWORK, new ExactStellarScheme(signer));
@@ -194,9 +187,7 @@ export async function attemptPayment(
 
   let unpaid: Response;
   try {
-    unpaid = await fetchWithColdStartNotice(resourceUrl, {}, getTimeoutMs, coldStartAfterMs, () =>
-      onEvent?.({ step: "waking_up", status: "active" }),
-    );
+    unpaid = await fetch(resourceUrl, { signal: AbortSignal.timeout(getTimeoutMs) });
   } catch (err) {
     const message = `Could not reach the resource to start the payment: ${err instanceof Error ? err.message : String(err)}`;
     onEvent?.({ step: "get_request", status: "error", message });

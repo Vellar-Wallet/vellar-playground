@@ -1,9 +1,8 @@
-import { FACILITATOR_URL } from "@/lib/config";
+import { FACILITATOR_URL, SELLER_URL } from "@/lib/config";
 import { fetchCatalog, CatalogFetchError, type CatalogItem } from "@/lib/catalog";
 
 // Two live facilitator polls with a deliberate 4s gap between them
-// (POLL_GAP_MS below), each of which can also hit a cold-start delay — past
-// the default 10s. Vercel Hobby platform max.
+// (POLL_GAP_MS below). Vercel Hobby platform max.
 export const maxDuration = 30;
 
 /**
@@ -101,7 +100,7 @@ export const maxDuration = 30;
  * ---------------------------------------------------------------------------
  */
 
-const DEMO_RESOURCE_URL = "https://vellar-seller-demo.onrender.com/quote";
+const DEMO_RESOURCE_URL = `${SELLER_URL.replace(/\/+$/, "")}/quote`;
 const POLL_GAP_MS = 4_000;
 
 interface AttackOutcome {

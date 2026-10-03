@@ -8,7 +8,7 @@ import { FACILITATOR_URL } from "@/lib/config";
 // ---------------------------------------------------------------------------
 // A raw API console: one card per facilitator endpoint. GET endpoints are
 // wired to a real "Run" button (through this app's server proxy routes —
-// same cold-start/CORS rationale as /api/catalog, see lib/facilitator.ts).
+// same proxy rationale as /api/catalog, see lib/facilitator.ts).
 // POST endpoints (/verify, /settle) are illustrative only, per spec: show
 // the expected request shape, no interactive form, and point at the guided
 // demo page where they're actually exercised.
@@ -87,7 +87,7 @@ const ENDPOINTS: EndpointDef[] = [
 const ILLUSTRATIVE_BODY = `{
   "paymentPayload": {
     "x402Version": 2,
-    "resource": { "url": "https://vellar-seller-demo.onrender.com/quote" },
+    "resource": { "url": "https://vellar-seller-demo-testnet-production.up.railway.app/quote" },
     "accepted": {
       "scheme": "exact",
       "network": "stellar:testnet",

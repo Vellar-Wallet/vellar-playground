@@ -1,7 +1,7 @@
 import { FacilitatorFetchError, fetchFacilitatorJson } from "@/lib/facilitator";
 
-// fetchFacilitatorJson's own internal timeout is 60s (the facilitator's
-// documented cold-start allowance). Vercel Hobby platform max.
+// fetchFacilitatorJson's own internal timeout gives the facilitator a little
+// headroom beyond this route's own work. Vercel Hobby platform max.
 export const maxDuration = 60;
 
 /**
@@ -10,7 +10,7 @@ export const maxDuration = 60;
  * Public, unauthenticated data only — no session cookie is read here. See
  * lib/facilitator.ts's doc comment for the proxy-vs-direct-fetch rationale
  * (CORS already permits a direct client fetch; the proxy exists to
- * centralize cold-start/timeout handling, matching /api/catalog).
+ * centralize timeout handling, matching /api/catalog).
  */
 
 function jsonError(status: number, error: string, message: string) {
@@ -28,7 +28,7 @@ export async function GET(): Promise<Response> {
         err.timedOut ? 504 : 502,
         err.timedOut ? "facilitator_timeout" : "facilitator_unreachable",
         err.timedOut
-          ? "The demo facilitator is taking a while to wake up (it sleeps when idle). Please try again shortly."
+          ? "The demo facilitator is taking a while to respond. Please try again shortly."
           : "We couldn't reach the demo facilitator right now. Please try again in a moment.",
       );
     }

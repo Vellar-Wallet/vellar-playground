@@ -2,12 +2,9 @@ import { getSession } from "@/lib/session";
 import { SELLER_URL } from "@/lib/config";
 import { attemptPayment, PaymentError, type PayProgressEvent, type PayResult } from "@/lib/pay";
 
-// Step 1's own cold-start allowance is 90s (FIRST_GET_TIMEOUT_MS below) on a
-// single attempt, and up to 3 attempts can run on a not_settled retry — the
-// genuine worst case is well past Vercel Hobby's 60s hard cap on
-// maxDuration. Set to the platform maximum; a real worst-case cold-start-plus-
-// retry sequence can still get cut off on Hobby specifically (Pro allows
-// higher) — a disclosed limitation of the free tier, not silently hidden.
+// Up to 3 attempts can run on a not_settled retry (see MAX_ATTEMPTS below);
+// set to Vercel Hobby's platform max so a slow settle on testnet still has
+// room to finish within one request.
 export const maxDuration = 60;
 
 // ---------------------------------------------------------------------------
@@ -50,7 +47,6 @@ export const maxDuration = 60;
 //   {"step": "get_request"|"sign"|"settle", "status": "active", "attempt": N, ...}
 //   {"step": <any of the six>, "status": "done"|"error", "attempt": N, ...}
 //   {"step": "challenge"|"verify", "status": "done", "attempt": N, ...}
-//   {"step": "waking_up", "status": "active", "attempt": N}
 //   {"step": "retry", "status": "active", "attempt": N, "maxAttempts": 3}
 //   {"step": "complete", "status": "done", "result": {...}}
 //   {"step": "complete", "status": "error", "error": string, "message": string, "attempts": N}
@@ -89,13 +85,6 @@ export const maxDuration = 60;
 // event precedes each retry pass so the client can visibly reset the six-
 // step ledger and show "Attempt 2 of 3" rather than silently restarting.
 //
-// COLD-START — "waking_up" fires (server-side, once per crossing) only
-// around step 1's GET if the seller hasn't responded within 5s (see
-// lib/pay.ts's fetchWithColdStartNotice). The client is expected to run its
-// own elapsed-time ticker from that point (same pattern as
-// useElapsedSeconds elsewhere in this app) rather than the server emitting
-// repeated ticks — see lib/pay.ts's doc comment for why.
-//
 // SECURITY: the secret key is read once from the session and passed
 // directly into attemptPayment()'s signer construction. It is never
 // assigned to any other variable, logged, or placed into any event object
@@ -112,11 +101,11 @@ const MAX_BODY_BYTES = 2048;
 // empty transaction... retry the whole flow, signing a fresh payload."
 const MAX_ATTEMPTS = 3;
 
-// This first GET needs a longer allowance than every other fetch in the
-// flow specifically to accommodate a cold Render.com free-tier instance
-// waking up — NOT the 30s FETCH_TIMEOUT_MS the rest of lib/pay.ts uses.
-const FIRST_GET_TIMEOUT_MS = 90_000;
-const COLD_START_AFTER_MS = 5_000;
+// The seller is a real always-on service (no cold start to wait out), but
+// step 1's GET still gets a slightly longer allowance than the 30s
+// FETCH_TIMEOUT_MS lib/pay.ts uses elsewhere, to absorb an ordinary network
+// hiccup without failing a payment unnecessarily.
+const FIRST_GET_TIMEOUT_MS = 15_000;
 
 const DEFAULT_RESOURCE_URL = `${SELLER_URL.replace(/\/+$/, "")}/quote`;
 
@@ -152,7 +141,7 @@ function humanMessage(err: PaymentError | null): string {
   if (!err) return "Something went wrong while trying to pay. Please try again.";
   switch (err.code) {
     case "no_challenge":
-      return "We couldn't reach the demo resource to start the payment. It may be waking up — please try again in a moment.";
+      return "We couldn't reach the demo resource to start the payment. Please try again in a moment.";
     case "no_requirement":
       return "This resource doesn't offer a payment option we support yet.";
     case "build_failed":
@@ -247,7 +236,6 @@ export async function POST(req: Request): Promise<Response> {
           try {
             const result: PayResult = await attemptPayment(secretKey, resourceUrl, {
               getTimeoutMs: FIRST_GET_TIMEOUT_MS,
-              coldStartAfterMs: COLD_START_AFTER_MS,
               onEvent: (event) => emit({ ...event, attempt }),
             });
 

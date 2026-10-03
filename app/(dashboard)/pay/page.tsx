@@ -99,8 +99,6 @@ type PayStage =
       steps: LedgerStepMap;
       attempt: number;
       maxAttempts: number;
-      wakingUp: boolean;
-      wakingUpSince: number | null;
     }
   | { status: "success"; result: PayCompleteResult; resourceUrl: string; steps: LedgerStepMap; attempt: number }
   | { status: "error"; message: string; resourceUrl: string; steps: LedgerStepMap; attempt: number };
@@ -183,8 +181,6 @@ export default function PayPage() {
       steps: { ...steps },
       attempt: 1,
       maxAttempts: 3,
-      wakingUp: false,
-      wakingUpSince: null,
     });
 
     let latestPaymentPayload: unknown = undefined;
@@ -221,15 +217,11 @@ export default function PayPage() {
     function applyEvent(prev: PayStage, event: LedgerEvent): PayStage {
       if (prev.status !== "paying") return prev;
 
-      if (event.step === "waking_up") {
-        return { ...prev, wakingUp: true, wakingUpSince: prev.wakingUpSince ?? Date.now() };
-      }
-
       if (event.step === "retry") {
         const maxAttempts = typeof event.maxAttempts === "number" ? event.maxAttempts : prev.maxAttempts;
         const attempt = typeof event.attempt === "number" ? event.attempt : prev.attempt + 1;
         latestPaymentPayload = undefined;
-        return { ...prev, steps: initialLedgerSteps(), attempt, maxAttempts, wakingUp: false, wakingUpSince: null };
+        return { ...prev, steps: initialLedgerSteps(), attempt, maxAttempts };
       }
 
       if (LEDGER_STEP_ORDER.includes(event.step as LedgerStepName)) {
@@ -239,10 +231,8 @@ export default function PayPage() {
         if (stepName === "verify" && status === "done" && "paymentPayload" in event) {
           latestPaymentPayload = event.paymentPayload;
         }
-        const clearsWakingUp = stepName === "get_request" && status !== "active";
         return {
           ...prev,
-          wakingUp: clearsWakingUp ? false : prev.wakingUp,
           steps: {
             ...prev.steps,
             [stepName]: {
@@ -669,13 +659,7 @@ function PayLedger({ pay, elapsed, onRetry }: { pay: PayStage; elapsed: number; 
             testnet), so the whole flow restarted with a fresh signature.
           </p>
         )}
-        {pay.status === "paying" && pay.wakingUp && (
-          <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)" }}>
-            The demo seller looks like it&apos;s waking up from a cold start — this can take up to a
-            minute on testnet. ({elapsed}s)
-          </p>
-        )}
-        {pay.status === "paying" && !pay.wakingUp && (
+        {pay.status === "paying" && (
           <p className="lp-lead" style={{ marginTop: "var(--lp-sp-6)" }}>
             Paying... ({elapsed}s)
           </p>

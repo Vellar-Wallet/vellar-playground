@@ -457,7 +457,7 @@ export default function BondPage() {
                 <strong>
                   <code>BOND_ESCROW_CONTRACT_ID</code> is not configured on the hosted facilitator
                 </strong>{" "}
-                (<code>vellar-facilitator.onrender.com</code>) that this playground talks to. The wiring is
+                (<code>vellar-facilitator-testnet-production.up.railway.app</code>) that this playground talks to. The wiring is
                 real, merged, and correct in the code — but it is not currently active on the shared
                 instance.
               </li>

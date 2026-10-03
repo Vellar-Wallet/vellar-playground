@@ -45,12 +45,9 @@ type Stage =
   | { status: "ready"; snapshot: Snapshot }
   | { status: "error"; message: string };
 
-// A fetch that resolves within this window never shows the honest
-// "waking up" cold-start treatment — only a fetch slower than this (first
-// load or an unlucky refresh) does. Matches the demo page's own cold-start
-// framing (app/page.tsx's COLD_START_CEILING_MS is a *timeout* ceiling;
-// this is the much shorter "is this slow enough to explain to the user"
-// threshold the task spec calls out at 5s).
+// A fetch that resolves within this window is shown as a normal load —
+// only a fetch slower than this (an unlucky network hiccup) gets called
+// out explicitly as slow, honestly, rather than just looking stuck.
 const SLOW_THRESHOLD_MS = 5_000;
 const AUTO_REFRESH_MS = 30_000;
 
@@ -61,7 +58,7 @@ const AUTO_REFRESH_MS = 30_000;
  *   - green: both endpoints responded within SLOW_THRESHOLD_MS AND
  *            health.status === "ok"
  *   - amber: both endpoints responded (any latency) but either the fetch
- *            was slow (hit cold-start territory) OR health.status is
+ *            was slower than SLOW_THRESHOLD_MS OR health.status is
  *            present but not "ok"
  *   - red:   a fetch failed outright (network error / non-2xx / timeout)
  */
@@ -138,7 +135,7 @@ export default function StatusPage() {
 
   // Auto-refresh every 30s. A refresh reuses the same `load(false)` path so
   // it never resets `stage` to a fresh "loading" state (and never re-shows
-  // the cold-start copy) unless that particular refresh is itself slow —
+  // the slow-load copy) unless that particular refresh is itself slow —
   // `slow` is recomputed per-snapshot, not carried over from the initial load.
   useEffect(() => {
     const id = setInterval(() => {
@@ -154,7 +151,7 @@ export default function StatusPage() {
   }, []);
 
   const indicator = deriveIndicator(stage);
-  const showColdStart = stage.status === "loading" && loadingElapsed >= Math.floor(SLOW_THRESHOLD_MS / 1000);
+  const slowToLoad = stage.status === "loading" && loadingElapsed >= Math.floor(SLOW_THRESHOLD_MS / 1000);
 
   return (
     <>
@@ -167,11 +164,11 @@ export default function StatusPage() {
         </p>
       </div>
 
-      {stage.status === "loading" && !showColdStart && (
+      {stage.status === "loading" && !slowToLoad && (
         <p className="lp-lead">Checking facilitator status…</p>
       )}
 
-      {showColdStart && <p className="lp-lead">Waking up the facilitator... ({loadingElapsed}s)</p>}
+      {slowToLoad && <p className="lp-lead">Still checking facilitator status... ({loadingElapsed}s)</p>}
 
       {stage.status === "error" && (
         <div>

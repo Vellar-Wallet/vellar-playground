@@ -1,8 +1,7 @@
 import { CatalogFetchError, fetchCatalog } from "@/lib/catalog";
 
-// fetchCatalog's own internal timeout is 60s (the facilitator's documented
-// cold-start allowance) — the function needs at least that much headroom.
-// Vercel Hobby platform max.
+// fetchCatalog's own internal timeout gives the facilitator a little
+// headroom beyond this route's own work. Vercel Hobby platform max.
 export const maxDuration = 60;
 
 /**
@@ -12,11 +11,9 @@ export const maxDuration = 60;
  * during this build: `access-control-allow-origin: *`, and a working GET
  * with an Origin header) would in fact allow a direct browser-side fetch —
  * CORS is not the reason a proxy exists here. We route through this server
- * proxy anyway to centralize cold-start/timeout handling in one place: the
- * facilitator can have a ~45s cold start on first hit, and that "waking up,
- * keep waiting, then give a clear timeout" logic is identical to what
- * /api/pay's underlying calls need. Keeping it server-side also means the
- * playground can change the facilitator URL (lib/config.ts) or add
+ * proxy anyway to centralize timeout handling in one place, identical to
+ * what /api/pay's underlying calls need. Keeping it server-side also means
+ * the playground can change the facilitator URL (lib/config.ts) or add
  * caching/backoff later without touching client code.
  *
  * The actual fetch-and-parse logic lives in lib/catalog.ts, shared with
@@ -38,7 +35,7 @@ export async function GET(): Promise<Response> {
         err.timedOut ? 504 : 502,
         err.timedOut ? "facilitator_timeout" : "facilitator_unreachable",
         err.timedOut
-          ? "The demo facilitator is taking a while to wake up (it sleeps when idle). Please try again shortly."
+          ? "The demo facilitator is taking a while to respond. Please try again shortly."
           : "We couldn't reach the demo facilitator right now. Please try again in a moment.",
       );
     }

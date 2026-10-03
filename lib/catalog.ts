@@ -5,8 +5,8 @@
  * Two callers need this: the `/api/catalog` route (proxies it verbatim to
  * the client) and `POST /api/session/create` (reads just the demo seller's
  * price out of it to decide how much USDC to provision). Factored here so
- * the fetch-and-parse logic — including the cold-start timeout handling —
- * lives in exactly one place rather than being duplicated across both.
+ * the fetch-and-parse logic — including the timeout handling — lives in
+ * exactly one place rather than being duplicated across both.
  *
  * Deliberately returns the parsed JSON as `unknown`-ish loosely-typed shape
  * rather than a fully-validated schema: `/api/catalog` just re-serves it
@@ -17,7 +17,7 @@
 
 import { FACILITATOR_URL } from "@/lib/config";
 
-const FACILITATOR_TIMEOUT_MS = 60_000;
+const FACILITATOR_TIMEOUT_MS = 15_000;
 
 export interface CatalogAccept {
   amount?: string;

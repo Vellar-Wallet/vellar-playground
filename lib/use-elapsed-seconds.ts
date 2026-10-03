@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
  *  loading-state counter, not worth a synchronous effect setState to avoid.
  *
  *  Shared across `app/page.tsx` (wallet/catalog/pay loading states) and
- *  `/status` (cold-start detection on the initial facilitator fetch) —
+ *  `/status` (showing how long the initial facilitator fetch has taken) —
  *  extracted here once a second page needed the identical hook rather than
  *  a copy-pasted duplicate.
  */

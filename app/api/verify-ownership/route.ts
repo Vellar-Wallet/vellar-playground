@@ -1,6 +1,5 @@
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { CatalogFetchError, fetchCatalog, type CatalogItem } from "@/lib/catalog";
-import { fetchWithColdStartNotice } from "@/lib/fetch-with-cold-start-notice";
 import {
   DEFAULT_VERIFY_ID,
   verifiableResourceById,
@@ -8,22 +7,9 @@ import {
   verifiableResourceUrl,
 } from "@/lib/verifiable-resources";
 
-// A live seller fetch plus a facilitator catalog fetch, either of which can
-// hit a cold-start delay on Render's free tier — past the default 10s.
-// BUG FIX: this used to say so and then not act on it — maxDuration was 30s
-// while the seller fetch below had its own separate FETCH_TIMEOUT_MS of
-// 15s, leaving almost no headroom for the catalog fetch afterward, and no
-// "waking up" messaging at all, so a genuinely cold seller (confirmed live:
-// Render's free tier can take well past 15s to answer its first request
-// after idling) surfaced as a flat, unexplained "Could not reach the
-// seller... aborted due to timeout" error rather than the same honest
-// "waking up" framing POST /api/pay already gives this exact situation.
-// Matched to that route's own established, disclosed tradeoff instead of
-// inventing a different number: maxDuration set to 60, the actual Vercel
-// Hobby platform ceiling (see app/api/pay/route.ts's own comment on this),
-// with the seller fetch's own timeout raised well above it so a real
-// worst-case cold start isn't cut off before the platform's own hard cap
-// would end the request anyway.
+// A live seller fetch plus a facilitator catalog fetch — both real, always-on
+// hosted services, but still given headroom for an ordinary network hiccup.
+// Vercel Hobby platform max.
 export const maxDuration = 60;
 
 /**
@@ -121,16 +107,9 @@ export const maxDuration = 60;
  * ---------------------------------------------------------------------------
  */
 
-// 90s, matching POST /api/pay's own FIRST_GET_TIMEOUT_MS for the identical
-// kind of call (a plain unpaid GET against this same seller) — see that
-// route's doc comment for why this deliberately exceeds maxDuration (60s):
-// the platform's own hard cap ends the request either way, so this ceiling
-// only has to be high enough not to cut the fetch off first on a real but
-// non-catastrophic cold start.
-const FETCH_TIMEOUT_MS = 90_000;
-// Same 5s threshold POST /api/pay uses before it starts showing "waking
-// up" framing instead of a silent wait.
-const COLD_START_AFTER_MS = 5_000;
+// Matches POST /api/pay's own FIRST_GET_TIMEOUT_MS for the identical kind of
+// call (a plain unpaid GET against this same seller).
+const FETCH_TIMEOUT_MS = 15_000;
 
 // SECURITY: this route's whole reason for skipping SSRF hardening is that
 // it never fetches a URL/path the client can steer — a client sends an
@@ -178,12 +157,6 @@ interface DecodedChallenge {
 
 type StreamEvent =
   | { step: "fetch_challenge"; status: "active"; requestLine: string }
-  // Emitted (at most once) if the seller hasn't answered within
-  // COLD_START_AFTER_MS — same "the demo seller might be waking up from a
-  // cold start" signal POST /api/pay already gives, previously missing
-  // here entirely (a slow-but-not-catastrophic cold seller just looked
-  // like a silent hang, then a flat timeout error).
-  | { step: "waking_up"; status: "active" }
   | {
       step: "fetch_challenge";
       status: "done";
@@ -279,9 +252,7 @@ export async function POST(req: Request): Promise<Response> {
 
         let unpaid: Response;
         try {
-          unpaid = await fetchWithColdStartNotice(resourceUrl, {}, FETCH_TIMEOUT_MS, COLD_START_AFTER_MS, () =>
-            emit({ step: "waking_up", status: "active" }),
-          );
+          unpaid = await fetch(resourceUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
         } catch (err) {
           const message = `Could not reach the seller to fetch its 402 challenge: ${err instanceof Error ? err.message : String(err)}`;
           emit({ step: "fetch_challenge", status: "error", message });
@@ -428,7 +399,7 @@ export async function POST(req: Request): Promise<Response> {
           verdictText = "Confirmed — already verified. This resource was proven earlier and that verdict is permanent.";
         } else if (match) {
           // Genuinely common now that this route checks more than one
-          // resource: several of the 8 real vellar-seller-demo.onrender.com
+          // resource: several of the real vellar-seller-demo-testnet
           // resources are settled but not yet verified (verification is an
           // async, cooldown-gated side effect of settlement inside the real
           // facilitator — see src/bazaar.ts's onAfterSettle hook — so a

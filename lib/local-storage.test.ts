@@ -81,7 +81,7 @@ describe("lib/local-storage: namespacing + round-trip", () => {
     const data: StoredLastPayment = {
       settlementTx: "abc123",
       paymentPayload: { accepted: { scheme: "exact" } },
-      sellerUrl: "https://vellar-seller-demo.onrender.com/quote",
+      sellerUrl: "https://vellar-seller-demo-testnet-production.up.railway.app/quote",
       amount: "10000",
       timestamp: 1234567890,
     };
@@ -207,7 +207,7 @@ describe("lib/local-storage: secret key never reaches the raw stored bytes", () 
     const dangerousCallerObject = {
       settlementTx: "deadbeef",
       paymentPayload: { accepted: { scheme: "exact" } },
-      sellerUrl: "https://vellar-seller-demo.onrender.com/quote",
+      sellerUrl: "https://vellar-seller-demo-testnet-production.up.railway.app/quote",
       amount: "10000",
       timestamp: Date.now(),
       secretKey,
@@ -232,7 +232,7 @@ describe("lib/local-storage: secret key never reaches the raw stored bytes", () 
       // put one in (which, per the module doc comment, it structurally can't
       // for this app's actual call sites).
       paymentPayload: { accepted: { scheme: "exact", network: "stellar:testnet" }, payload: { transaction: "AAAA..." } },
-      sellerUrl: "https://vellar-seller-demo.onrender.com/quote",
+      sellerUrl: "https://vellar-seller-demo-testnet-production.up.railway.app/quote",
       amount: "10000",
       timestamp: Date.now(),
     };
