@@ -5,7 +5,11 @@ import { Eyebrow, LpActionButton, PayUnverifiedConfirm } from "../../design/ui";
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 import { writeLastCatalogSearch } from "@/lib/local-storage";
-import { isLocalOrPrivateResource } from "@/lib/catalog";
+import {
+  isLocalOrPrivateResource,
+  extractExampleParams,
+  buildResourceUrlWithParams,
+} from "@/lib/catalog";
 import { useWallet, WALLET_STEP_ORDER, WALLET_STEP_LABELS, type WalletStage, type WalletStepMap } from "@/lib/wallet-context";
 
 // ---------------------------------------------------------------------------
@@ -54,45 +58,6 @@ interface CatalogItem {
    *  appended as a query string) before the resource is paid for. Same
    *  reactive-only usage as exampleQueryParams. */
   examplePathParams?: Record<string, string>;
-}
-
-/** Reads extensions.bazaar.info.input.{queryParams,pathParams} off a raw
- *  discovery item and returns both example maps. Both live at the same
- *  nesting depth (one level under `input`, confirmed via curl against the
- *  real /discovery/resources response) — a single walk down to `input`
- *  serves both, rather than two near-duplicate functions. */
-function extractExampleParams(item: unknown): { queryParams?: Record<string, string>; pathParams?: Record<string, string> } {
-  if (!item || typeof item !== "object") return {};
-  const extensions = (item as Record<string, unknown>).extensions;
-  if (!extensions || typeof extensions !== "object") return {};
-  const bazaar = (extensions as Record<string, unknown>).bazaar;
-  if (!bazaar || typeof bazaar !== "object") return {};
-  const info = (bazaar as Record<string, unknown>).info;
-  if (!info || typeof info !== "object") return {};
-  // BUG FIX: this used to read `info.queryParams` directly — one level too
-  // shallow. The real live shape (confirmed via curl against
-  // /discovery/resources) nests queryParams/pathParams one level deeper,
-  // under `info.input`, matching this function's own doc comment above
-  // (which had the right path all along) but not what the code actually
-  // read. Silent effect: exampleQueryParams was always undefined for
-  // every real resource, so the "needs_input" param-prompt form could
-  // never fire — any resource needing query params (hash, base64,
-  // word-count, stroops) fell into a permanent, unrecoverable generic
-  // "Payment failed" error with no way to supply the input a retry would
-  // need.
-  const input = (info as Record<string, unknown>).input;
-  if (!input || typeof input !== "object") return {};
-  const toStringMap = (value: unknown): Record<string, string> | undefined => {
-    if (!value || typeof value !== "object") return undefined;
-    const entries = Object.entries(value as Record<string, unknown>).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
-    );
-    return entries.length > 0 ? Object.fromEntries(entries) : undefined;
-  };
-  return {
-    queryParams: toStringMap((input as Record<string, unknown>).queryParams),
-    pathParams: toStringMap((input as Record<string, unknown>).pathParams),
-  };
 }
 
 function normalizeItems(body: unknown): CatalogItem[] {
@@ -344,30 +309,7 @@ export default function CatalogPage() {
   const payForResource = useCallback(async (resourceUrl: string, params?: Record<string, string>) => {
     setPayState((prev) => ({ ...prev, [resourceUrl]: { status: "paying", startedAt: Date.now() } }));
 
-    let requestUrl = resourceUrl;
-    if (params && Object.keys(params).length > 0) {
-      // Path substitution first (":key" segments), then whatever's left
-      // over goes on the query string — a key that matched a ":key"
-      // placeholder in the path is consumed there and NOT also appended as
-      // a query param.
-      let substitutedPath = resourceUrl;
-      const remaining: Record<string, string> = {};
-      for (const [key, value] of Object.entries(params)) {
-        const placeholder = `:${key}`;
-        if (substitutedPath.includes(placeholder)) {
-          substitutedPath = substitutedPath.split(placeholder).join(encodeURIComponent(value));
-        } else {
-          remaining[key] = value;
-        }
-      }
-      if (Object.keys(remaining).length > 0) {
-        const url = new URL(substitutedPath);
-        for (const [key, value] of Object.entries(remaining)) url.searchParams.set(key, value);
-        requestUrl = url.toString();
-      } else {
-        requestUrl = substitutedPath;
-      }
-    }
+    const requestUrl = buildResourceUrlWithParams(resourceUrl, params);
 
     try {
       const res = await fetch("/api/pay", {

@@ -18,7 +18,12 @@ import { Eyebrow, LpActionButton, MonoRow, MonoRows, PayUnverifiedConfirm } from
 import { formatAtomicAmount, truncateMiddle } from "@/lib/format";
 import { useElapsedSeconds } from "@/lib/use-elapsed-seconds";
 import { FACILITATOR_URL, SELLER_URL } from "@/lib/config";
-import { isLocalOrPrivateResource, isOurSellerResource } from "@/lib/catalog";
+import {
+  isLocalOrPrivateResource,
+  isOurSellerResource,
+  extractExampleParams,
+  buildResourceUrlWithParams,
+} from "@/lib/catalog";
 import { readLastPayment, readSession, writeLastPayment, writeQuestLevel, writeSession } from "@/lib/local-storage";
 import { useWallet } from "@/lib/wallet-context";
 
@@ -499,6 +504,15 @@ function CatalogSection({
               const accept = item.accepts?.[0];
               const trust = trustLabel(item.trust);
               const tint = CATALOG_TINTS[index % CATALOG_TINTS.length];
+              // Several real resources (hash, base64, word-count, stroops)
+              // need at least one query/path param to produce a 402 at all —
+              // a bare GET 400s before ever reaching a payable challenge. The
+              // catalog entry's own bazaar extension suggests example values
+              // for exactly this; auto-apply them so every card's Pay button
+              // actually works, same fix /catalog already has.
+              const { queryParams, pathParams } = extractExampleParams(item);
+              const exampleParams = { ...queryParams, ...pathParams };
+              const payableResourceUrl = buildResourceUrlWithParams(item.resource, exampleParams);
               return (
                 <div className={`lp-dpanel lp-dpanel--${tint}`} key={item.resource}>
                   <div>
@@ -522,7 +536,7 @@ function CatalogSection({
                         disabled={payBusy}
                         onClick={() => {
                           if (trust.verified) {
-                            onPay(item.resource);
+                            onPay(payableResourceUrl);
                             return;
                           }
                           setConfirmingUnverified((prev) => new Set(prev).add(item.resource));
@@ -541,7 +555,7 @@ function CatalogSection({
                             next.delete(item.resource);
                             return next;
                           });
-                          onPay(item.resource);
+                          onPay(payableResourceUrl);
                         }}
                       />
                     </div>

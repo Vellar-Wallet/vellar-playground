@@ -228,3 +228,75 @@ export function isOurSellerResource(resourceUrl: string): boolean {
     return false;
   }
 }
+
+/**
+ * Example query/path params a catalog entry's own bazaar extension suggests
+ * for calling it — read from `item.extensions.bazaar.info.input.{queryParams,
+ * pathParams}` (confirmed live shape via curl against `/discovery/resources`:
+ * nested one level under `info.input`, not directly under `info`). Several
+ * real resources (hash, base64, word-count, stroops) need at least one of
+ * these to produce a 402 at all — a bare GET with none of them 400s before
+ * ever reaching a payable challenge.
+ *
+ * Shared by every page that pays a catalog resource, so this extraction (and
+ * its one-level-deeper-than-expected shape) is fixed in exactly one place —
+ * see git history for the bug this duplication caused once already: `/catalog`
+ * had this fix, `/pay` never got it, so `/pay`'s Pay button 400s forever on
+ * any resource needing input.
+ */
+export function extractExampleParams(item: unknown): {
+  queryParams?: Record<string, string>;
+  pathParams?: Record<string, string>;
+} {
+  if (!item || typeof item !== "object") return {};
+  const extensions = (item as Record<string, unknown>).extensions;
+  if (!extensions || typeof extensions !== "object") return {};
+  const bazaar = (extensions as Record<string, unknown>).bazaar;
+  if (!bazaar || typeof bazaar !== "object") return {};
+  const info = (bazaar as Record<string, unknown>).info;
+  if (!info || typeof info !== "object") return {};
+  const input = (info as Record<string, unknown>).input;
+  if (!input || typeof input !== "object") return {};
+  const toStringMap = (value: unknown): Record<string, string> | undefined => {
+    if (!value || typeof value !== "object") return undefined;
+    const entries = Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    );
+    return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+  };
+  return {
+    queryParams: toStringMap((input as Record<string, unknown>).queryParams),
+    pathParams: toStringMap((input as Record<string, unknown>).pathParams),
+  };
+}
+
+/**
+ * Build the concrete URL actually fetched/paid for a resource, given a flat
+ * map of param values (path params and query params combined — the caller
+ * doesn't need to know which is which). Path substitution runs first: a key
+ * matching a `:key` placeholder in `resourceUrl`'s path is consumed there;
+ * everything left over is appended as a query string. A key that matches no
+ * placeholder and isn't consumed just becomes a query param, which is the
+ * right behavior for every real resource on this catalog (none currently mix
+ * a path param with an unrelated extra query param, but this stays correct
+ * either way).
+ */
+export function buildResourceUrlWithParams(resourceUrl: string, params?: Record<string, string>): string {
+  if (!params || Object.keys(params).length === 0) return resourceUrl;
+
+  let substitutedPath = resourceUrl;
+  const remaining: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    const placeholder = `:${key}`;
+    if (substitutedPath.includes(placeholder)) {
+      substitutedPath = substitutedPath.split(placeholder).join(encodeURIComponent(value));
+    } else {
+      remaining[key] = value;
+    }
+  }
+  if (Object.keys(remaining).length === 0) return substitutedPath;
+
+  const url = new URL(substitutedPath);
+  for (const [key, value] of Object.entries(remaining)) url.searchParams.set(key, value);
+  return url.toString();
+}
